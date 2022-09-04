@@ -155,7 +155,7 @@ def get_ep(ep, full=False, *args, **kwargs):
 
 @prefix('md', on=False)
 def get_md(md, full=False, *args, **kwargs):
-    md_json = requests.get(url_cid.format(md=md)).json()
+    md_json = requests.get(url_md.format(md=md)).json()
     ss = md_json['result']['media']['season_id']
     print('season', ss)
     return get_ss(ss)
@@ -176,14 +176,17 @@ def get_any(key, *args, **kwargs):
         if len(parts) <= 1:
             return None
         for part in parts:
+            try:
                 ret = get_any(part, *args, **kwargs)
                 if ret != None:
                     return ret
+            except:
+                pass
         return None
 
 
 def match_local(remote, local=None, suffix=''):
-    if local != None:
+    if local:
         os.chdir(local)
     ls = os.listdir()
     videos = set()
