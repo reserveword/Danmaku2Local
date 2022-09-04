@@ -19,6 +19,7 @@ url_av = 'https://www.bilibili.com/video/{av}'
 url_bv = 'https://www.bilibili.com/video/{bv}'
 url_ss = 'https://www.bilibili.com/bangumi/play/{ss}'
 url_ep = 'https://www.bilibili.com/bangumi/play/{ep}'
+url_md = 'https://api.bilibili.com/pgc/review/user?media_id={md}'
 url_cid = 'https://bangumi.bilibili.com/view/web_api/season?season_id={ss}'
 url_xml = 'https://api.bilibili.com/x/v1/dm/list.so?oid={oid}'
 
@@ -152,6 +153,12 @@ def get_ep(ep, full=False, *args, **kwargs):
         print(ss)
         return get_ss(ss, full, *args, **kwargs)
 
+@prefix('md', on=False)
+def get_md(md, full=False, *args, **kwargs):
+    md_json = requests.get(url_cid.format(md=md)).json()
+    ss = md_json['result']['media']['season_id']
+    print('season', ss)
+    return get_ss(ss)
 
 def get_any(key, *args, **kwargs):
     if key.startswith('ep'):
@@ -160,6 +167,8 @@ def get_any(key, *args, **kwargs):
         return get_ss(key, *args, **kwargs)
     elif key.startswith('av'):
         return get_av(key, *args, **kwargs)
+    elif key.startswith('md'):
+        return get_md(key, *args, **kwargs)
     # elif key.startswith('ep'):
     #     return get_ep(key, *args, **kwargs)
     else:
@@ -167,9 +176,9 @@ def get_any(key, *args, **kwargs):
         if len(parts) <= 1:
             return None
         for part in parts:
-            ret = get_any(part, *args, **kwargs)
-            if ret != None:
-                return ret
+                ret = get_any(part, *args, **kwargs)
+                if ret != None:
+                    return ret
         return None
 
 
@@ -260,7 +269,7 @@ if __name__ == '__main__':
     if args.local == None:
         args.local = input('请输入本地视频文件夹（默认为当前路径）：')
     while not args.remote:
-        args.remote = input('请输入b站ID（av/BV/ss/ep开头均可，网址也可以）：')
+        args.remote = input('请输入b站ID（av/BV/ss/ep/md开头均可，网址也可以）：')
     if args.suffix == None:
         args.suffix = input('请输入字幕文件tag，用于区分弹幕和一般字幕。默认为空：')
     print(match_local(args.remote, args.local, args.suffix))
