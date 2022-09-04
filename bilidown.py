@@ -3,7 +3,7 @@
 # reserveword
 
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 import functools
 from typing import Callable, MutableSequence, ParamSpecArgs, ParamSpecKwargs, Sequence, Tuple, TypeVar
 import requests
@@ -26,7 +26,7 @@ url_xml = 'https://api.bilibili.com/x/v1/dm/list.so?oid={oid}'
 video_ext = {'.mp4', '.m4v', '.mov', '.qt', '.avi', '.flv', '.wmv', '.asf', '.mpeg',
              '.mpg', '.vob', '.mkv', '.asf', '.wmv', '.rm', '.rmvb', '.vob', '.ts', '.dat'}
 subtitle_ext = {'.ass', '.srt', '.smi', '.ssa', '.sub', '.stl', '.idx'}
-# danmaku_ext = {'.xml', '.json', '.protobuf'}
+danmaku_ext = {'.xml', '.json', '.protobuf'}
 
 _T = TypeVar('_T')
 
@@ -122,7 +122,7 @@ def get_ss(ss, full=False, name_pattern='ss{ss}[{index}]_ep{ep_id}', *args, **kw
 
 
 @prefix('cid', on=False)
-def get_cid(cid, full=False, name=None, width=1920, height=1080):
+def get_cid(cid, full=False, name=None, width=1920, height=1080, *args, **kwargs):
     print('cid', cid)
     if name == None:
         name = cid + '.xml'
@@ -136,7 +136,7 @@ def get_cid(cid, full=False, name=None, width=1920, height=1080):
                 for content in response.iter_content(None):
                     file.write(content)
             Danmaku2ASS(name, 'autodetect', os.path.splitext(
-                name)[0] + '.ass', 1920, 1080)
+                name)[0] + '.ass', width, height, *args, **kwargs)
         except FileExistsError as e:
             print(e)
     return name
@@ -153,12 +153,14 @@ def get_ep(ep, full=False, *args, **kwargs):
         print(ss)
         return get_ss(ss, full, *args, **kwargs)
 
+
 @prefix('md', on=False)
 def get_md(md, full=False, *args, **kwargs):
     md_json = requests.get(url_md.format(md=md)).json()
     ss = md_json['result']['media']['season_id']
     print('season', ss)
     return get_ss(ss)
+
 
 def get_any(key, *args, **kwargs):
     if key.startswith('ep'):
@@ -185,26 +187,32 @@ def get_any(key, *args, **kwargs):
         return None
 
 
-def match_local(remote, local=None, suffix=''):
-    if local:
-        os.chdir(local)
-    ls = os.listdir()
-    videos = set()
-    # subtitles = set()
-    # danmakus = set()
-    resolution = []
+def fileclassify(ls, *clas, callback=None, **kwclas):
+    for k, v in enumerate(clas):
+        kwclas[k] = v
+    rs = defaultdict(set)
     for file in ls:
         if os.path.isfile(file):
             base, ext = os.path.splitext(file)
-            if ext in video_ext:
-                videos.add(base)
-                cap = cv2.VideoCapture(file)
-                resolution.append(
-                    (cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            # elif ext in subtitle_ext:
-            #     subtitles.add(base)
-            # elif ext in danmaku_ext:
-            #     danmakus.add(base)
+            for k, v in kwclas.items():
+                if ext in v:
+                    rs[k].add(base)
+                    if hasattr(callback, '__call__'):
+                        callback(k, file=file, base=base, ext=ext)
+    return rs
+
+
+def video_get_resolution(file):
+    cap = cv2.VideoCapture(file)
+    return (cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+
+def match_local(remote, suffix='', *args, **kwargs):
+    ls = os.listdir()
+    resolution = []
+    classify = fileclassify(ls, video_ext, lambda _, file,
+                            **_kw: resolution.append(video_get_resolution(file)))
+    videos = classify[0]
     resolution = Counter(resolution).most_common(1)[0][0]
     # 用最长公共子序列猜测剧集使用的名称模式
     count_max = 1000
@@ -258,23 +266,97 @@ def match_local(remote, local=None, suffix=''):
         pattern)] + list(map(tuple.__getitem__, sorted(slot)[-1][1], (1,)*len(videos)))
     print('各集名称：')
     print('\n'.join(names_by_episode[1:]))
-    return get_any(remote, name_pattern=formattable(None, lambda *x, **k: names_by_episode[int(k['index'])] + suffix))
+    return get_any(remote, name_pattern=formattable(None, lambda *x, **k: names_by_episode[int(k['index'])] + suffix), *args, **kwargs)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-l', '--local', help='本地视频文件夹（默认为当前路径）', default=None)
-    parser.add_argument(
-        '-r', '--remote', help='b站ID（av/BV/ss/ep开头均可，网址也可以）', default=None)
-    parser.add_argument(
-        '-s', '--suffix', help='字幕文件tag，用于区分弹幕和一般字幕。默认为空', default=None)
+    parser.add_argument('-l', '--local',
+                        help='本地视频文件夹（默认为当前路径）', default=None)
+    parser.add_argument('-r', '--remote',
+                        help='b站ID（av/BV/ss/ep开头均可，网址也可以），留空代表读取本地弹幕文件', default=None)
+    parser.add_argument('-t', '--tag',
+                        help='字幕文件标签，用于区分弹幕和一般字幕。默认为.danmaku', default='.danmaku')
+    # args from Danmaku2ASS
+    parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
+                        help='Stage size in pixels', default=None)
+    parser.add_argument('--font', metavar='FONT',
+                        help='Specify font face [default: %s]' % '(FONT) sans-serif'[7:], default='(FONT) sans-serif'[7:])
+    parser.add_argument('--fontsize', metavar='SIZE',
+                        help=('Default font size [default: %s]' % 25), type=float, default=25.0)
+    parser.add_argument('-a', '--alpha', metavar='ALPHA',
+                        help='Text opacity', type=float, default=1.0)
+    parser.add_argument('--duration-marquee', metavar='SECONDS',
+                        help='Duration of scrolling comment display [default: %s]' % 5, type=float, default=5.0)
+    parser.add_argument('--duration-still', metavar='SECONDS',
+                        help='Duration of still comment display [default: %s]' % 5, type=float, default=5.0)
+    parser.add_argument('-f', '--filter',
+                        help='Regular expression to filter comments')
+    parser.add_argument('--filter-file',
+                        help='Regular expressions from file (one line one regex) to filter comments')
+    parser.add_argument('-p', '--protect', metavar='HEIGHT',
+                        help='Reserve blank on the bottom of the stage', type=int, default=0)
+    parser.add_argument('--reduce', action='store_true',
+                        help='Reduce the amount of comments if stage is full')
+    # end of args from Danmaku2ASS
     args = parser.parse_args()
+    try:
+        width, height = str(args.size).split('x', 1)
+        width = int(width)
+        height = int(height)
+    except ValueError:
+        width = None
+        height = None
+    # 本地视频位置
     if args.local == None:
         args.local = input('请输入本地视频文件夹（默认为当前路径）：')
-    while not args.remote:
+    if args.local:
+        os.chdir(args.local)
+    # 远程弹幕源位置
+    if args.remote == None:
         args.remote = input('请输入b站ID（av/BV/ss/ep/md开头均可，网址也可以）：')
-    if args.suffix == None:
-        args.suffix = input('请输入字幕文件tag，用于区分弹幕和一般字幕。默认为空：')
-    print(match_local(args.remote, args.local, args.suffix))
-    if os.isatty():
+    # if args.tag == None:
+    #     args.tag = input('请输入字幕文件标签，用于区分弹幕和一般字幕。默认为空：')
+    if args.remote:
+        print(match_local(
+            args.remote,
+            args.tag,
+            width=width,
+            height=height,
+            reserve_blank=args.protect,
+            font_face=args.font,
+            font_size=args.fontsize,
+            text_opacity=args.alpha,
+            duration_marquee=args.duration_marquee,
+            duration_still=args.duration_still,
+            comment_filter=args.filter,
+            comment_filters_file=args.filter_file,
+            is_reduce_comments=args.reduce
+        ))
+    else:
+        ls = os.listdir()
+        if width == None or height == None:
+            resolution = [video_get_resolution(file) for file in ls
+                        if os.path.splitext(file)[1] in video_ext]
+            width, height = Counter(resolution).most_common(1)[0][0]
+        danmakus = [(base, base+ext) for base, ext in [os.path.splitext(file) for file in ls]
+                    if base.endswith(args.tag) and ext in danmaku_ext]
+        for base, file in danmakus:
+            Danmaku2ASS(
+                file,
+                'autodetect',
+                base + '.ass',
+                stage_width=int(width),
+                stage_height=int(height),
+                reserve_blank=args.protect,
+                font_face=args.font,
+                font_size=args.fontsize,
+                text_opacity=args.alpha,
+                duration_marquee=args.duration_marquee,
+                duration_still=args.duration_still,
+                comment_filter=args.filter,
+                comment_filters_file=args.filter_file,
+                is_reduce_comments=args.reduce
+            )
+    if os.isatty(0):
         input('完成，按任意键关闭')
