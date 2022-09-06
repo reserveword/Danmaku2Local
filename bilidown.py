@@ -210,10 +210,11 @@ def video_get_resolution(file):
 def match_local(remote, suffix='', *args, **kwargs):
     ls = os.listdir()
     resolution = []
-    classify = fileclassify(ls, video_ext, lambda _, file,
-                            **_kw: resolution.append(video_get_resolution(file)))
+    classify = fileclassify(ls, video_ext,
+                            callback=lambda _, file, **_kw: resolution.append(video_get_resolution(file)))
     videos = classify[0]
     resolution = Counter(resolution).most_common(1)[0][0]
+    kwargs['width'], kwargs['height'] = map(int, resolution)
     # 用最长公共子序列猜测剧集使用的名称模式
     count_max = 1000
     if len(videos)**2 - len(videos) > count_max:
@@ -262,8 +263,8 @@ def match_local(remote, suffix='', *args, **kwargs):
                 slot[j][1].append((int(val), i))
             head = newhead + len(k)
     # 将视频按照集数对应的整数排序，弹幕就按照这个命名
-    names_by_episode = [''.join(
-        pattern)] + list(map(tuple.__getitem__, sorted(slot)[-1][1], (1,)*len(videos)))
+    names_by_episode = [''.join(pattern)] + list(
+        map(tuple.__getitem__, sorted(sorted(slot)[-1][1]), (1,)*len(videos)))
     print('各集名称：')
     print('\n'.join(names_by_episode[1:]))
     return get_any(remote, name_pattern=formattable(None, lambda *x, **k: names_by_episode[int(k['index'])] + suffix), *args, **kwargs)
