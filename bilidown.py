@@ -5,6 +5,8 @@
 import argparse
 from collections import Counter, defaultdict
 import functools
+import pickle
+import sys
 from typing import Callable, MutableSequence, ParamSpecArgs, ParamSpecKwargs, Sequence, Tuple, TypeVar
 import requests
 import lxml.html as html
@@ -75,6 +77,22 @@ class combinations(Sequence):
 
     def __len__(self):
         return self.length * (self.length - 1)
+
+
+def loadconfig() -> dict:
+    try:
+        with open(os.path.join(sys.path[0], 'bilidown.pickle'), 'rb') as cfg:
+            return pickle.load(cfg)
+    except:
+        return {}
+
+
+def saveconfig(cfg):
+    try:
+        with open(os.path.join(sys.path[0], 'bilidown.pickle'), 'wb') as cfgfile:
+            pickle.dump(cfg, cfgfile)
+    except:
+        pass
 
 
 def prefix(prefix, on=True):
@@ -278,6 +296,10 @@ if __name__ == '__main__':
                         help='b站ID（av/BV/ss/ep开头均可，网址也可以），留空代表读取本地弹幕文件', default=None)
     parser.add_argument('-t', '--tag',
                         help='字幕文件标签，用于区分弹幕和一般字幕。默认为.danmaku', default='.danmaku')
+    parser.add_argument('--set-config', action='store_true',
+                        help='保存本次设置为字幕的默认样式（只更新设置，不执行弹幕操作）')
+    parser.add_argument('--reset-config', action='store_true',
+                        help='删除已保存的字幕默认样式')
     # args from Danmaku2ASS
     parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
                         help='Stage size in pixels', default=None)
@@ -308,6 +330,27 @@ if __name__ == '__main__':
     except ValueError:
         width = None
         height = None
+    # 设置存储与重置
+    cfg = loadconfig() if not args.reset_config else {}
+    argcfg = {
+        'width': width,
+        'height': height,
+        'reserve_blank': args.protect,
+        'font_face': args.font,
+        'font_size': args.fontsize,
+        'text_opacity': args.alpha,
+        'duration_marquee': args.duration_marquee,
+        'duration_still': args.duration_still,
+        'comment_filter': args.filter,
+        'comment_filters_file': args.filter_file,
+        'is_reduce_comments': args.reduce
+    }
+    for k, v in argcfg.items():
+        if v != None:
+            cfg[k] = v
+    if args.set_config:
+        saveconfig(cfg)
+        exit(0)
     # 本地视频位置
     if args.local == None:
         args.local = input('请输入本地视频文件夹（默认为当前路径）：')
@@ -322,23 +365,15 @@ if __name__ == '__main__':
         print(match_local(
             args.remote,
             args.tag,
-            width=width,
-            height=height,
-            reserve_blank=args.protect,
-            font_face=args.font,
-            font_size=args.fontsize,
-            text_opacity=args.alpha,
-            duration_marquee=args.duration_marquee,
-            duration_still=args.duration_still,
-            comment_filter=args.filter,
-            comment_filters_file=args.filter_file,
-            is_reduce_comments=args.reduce
+            **cfg
         ))
     else:
         ls = os.listdir()
+        width = cfg.pop('width', None)
+        height = cfg.pop('height', None)
         if width == None or height == None:
             resolution = [video_get_resolution(file) for file in ls
-                        if os.path.splitext(file)[1] in video_ext]
+                          if os.path.splitext(file)[1] in video_ext]
             width, height = Counter(resolution).most_common(1)[0][0]
         danmakus = [(base, base+ext) for base, ext in [os.path.splitext(file) for file in ls]
                     if base.endswith(args.tag) and ext in danmaku_ext]
@@ -349,15 +384,7 @@ if __name__ == '__main__':
                 base + '.ass',
                 stage_width=int(width),
                 stage_height=int(height),
-                reserve_blank=args.protect,
-                font_face=args.font,
-                font_size=args.fontsize,
-                text_opacity=args.alpha,
-                duration_marquee=args.duration_marquee,
-                duration_still=args.duration_still,
-                comment_filter=args.filter,
-                comment_filters_file=args.filter_file,
-                is_reduce_comments=args.reduce
+                **cfg
             )
     if os.isatty(0):
         input('完成，按任意键关闭')
