@@ -5,15 +5,17 @@
 import argparse
 from collections import Counter, defaultdict
 import functools
+from io import StringIO, TextIOWrapper
 import pickle
 import sys
-from typing import Callable, MutableSequence, ParamSpecArgs, ParamSpecKwargs, Sequence, Tuple, TypeVar
+from typing import IO, Callable, MutableSequence, ParamSpecArgs, ParamSpecKwargs, Sequence, Tuple, TypeVar
 import requests
 import lxml.html as html
 import re
 import os
 import random
 import cv2
+import ass
 
 from danmaku2ass import Danmaku2ASS
 
@@ -95,6 +97,35 @@ def saveconfig(cfg):
         pass
 
 
+def danmaku2ass(*args, joined_ass=None, **kwargs):
+    kwargs.setdefault('stage_width', kwargs.pop('width', None))
+    kwargs.setdefault('stage_height', kwargs.pop('height', None))
+    if joined_ass == None:
+        return Danmaku2ASS(*args, **kwargs)
+    if type(joined_ass) == bytes:
+        joined_ass = joined_ass.decode()
+    if type(joined_ass) == str:
+        with open(joined_ass, 'r') as file:
+            return danmaku2ass(*args, joined_ass=ass.parse_file(joined_ass), **kwargs)
+    if isinstance(joined_ass, IO[str]):
+        return danmaku2ass(*args, joined_ass=ass.parse_file(joined_ass), **kwargs)
+    if isinstance(joined_ass, IO[bytes]):
+        return danmaku2ass(*args, joined_ass=ass.parse_file(TextIOWrapper(joined_ass)), **kwargs)
+    if isinstance(joined_ass, ass.Document):
+        danmaku_ass = StringIO()
+        danmaku_ass_path = None
+        if len(args) >= 3:
+            danmaku_ass_path, args[2] = args[2], danmaku_ass
+        else:
+            danmaku_ass_path, kwargs['output_file'] = kwargs['output_file'], danmaku_ass
+        Danmaku2ASS(*args, **kwargs)
+        danmaku_ass = ass.parse_file(danmaku_ass)
+        joined_ass.styles._lines += danmaku_ass.styles._lines
+        joined_ass.events._lines += danmaku_ass.events._lines
+        with open(danmaku_ass_path, 'w') as f:
+            joined_ass.dump_file(f)
+
+
 def prefix(prefix, on=True):
     def decorator(func):
         @functools.wraps(func)
@@ -153,7 +184,7 @@ def get_cid(cid, full=False, name=None, width=1920, height=1080, *args, **kwargs
             with open(name, 'xb') as file:
                 for content in response.iter_content(None):
                     file.write(content)
-            Danmaku2ASS(name, 'autodetect', os.path.splitext(
+            danmaku2ass(name, 'autodetect', os.path.splitext(
                 name)[0] + '.ass', width, height, *args, **kwargs)
         except FileExistsError as e:
             print(e)
@@ -300,6 +331,8 @@ if __name__ == '__main__':
                         help='保存本次设置为字幕的默认样式（只更新设置，不执行弹幕操作）')
     parser.add_argument('--reset-config', action='store_true',
                         help='删除已保存的字幕默认样式')
+    parser.add_argument('-j', '--join-subtitle', metavar='TAG',
+                        help='从以TAG结尾的文件读取字幕字幕并合并进弹幕中（需要ffmpeg，支持视频软内嵌字幕）')
     # args from Danmaku2ASS
     parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
                         help='Stage size in pixels', default=None)
@@ -378,7 +411,7 @@ if __name__ == '__main__':
         danmakus = [(base, base+ext) for base, ext in [os.path.splitext(file) for file in ls]
                     if base.endswith(args.tag) and ext in danmaku_ext]
         for base, file in danmakus:
-            Danmaku2ASS(
+            danmaku2ass(
                 file,
                 'autodetect',
                 base + '.ass',
