@@ -510,13 +510,7 @@ def ffmpeg_get_subtitle(file):
         ).stdout.readlines()
 
 
-def get_any_cid(
-    key,
-    name_pattern,
-    maxlen=None,
-    *args,
-    **kwargs
-):
+def get_any_cid(key, name_pattern, maxlen=None, *args, **kwargs):
     if key.startswith('ep'):
         state = 'ep'
     elif key.startswith('ss'):
@@ -551,12 +545,8 @@ def get_any_cid(
         ]
         return key
 
-def get_danmaku_joined(
-    key,
-    joiner: Callable[[str, str], str] = None,
-    *args,
-    **kwargs
-):
+
+def get_danmaku_joined(key, joiner: Callable[[str, str], str] = None, *args, **kwargs):
     try:
         if joiner:
             key_join = [joiner(base, ext) for base, ext in key]
@@ -722,14 +712,16 @@ if __name__ == '__main__':
             if names_by_episode_local == None:
                 videos_base = [v for v, _ in videos]
                 names_by_episode_local = analysis_pattern_lcs(videos_base)
-            names_by_episode = names_by_episode_local[len(danmaku_pool):]
+            names_by_episode = names_by_episode_local[len(danmaku_pool) :]
             formatter = lambda *x, **k: names_by_episode[k['episode_index']] + tag
-            danmaku_pool.extend(get_any_cid(
-                remote,
-                name_pattern=formattable(None, formatter),
-                maxlen=len(names_by_episode),
-                **cfg
-            ))
+            danmaku_pool.extend(
+                get_any_cid(
+                    remote,
+                    name_pattern=formattable(None, formatter),
+                    maxlen=len(names_by_episode),
+                    **cfg
+                )
+            )
         else:
             danmaku_pool.extend(danmakus)
     get_danmaku_joined(danmaku_pool, **cfg)
