@@ -510,42 +510,37 @@ def ffmpeg_get_subtitle(file):
         ).stdout.readlines()
 
 
-def get_any(
+def get_any_cid(
     key,
     name_pattern,
-    joiner: Callable[[str, str], str] = None,
     maxlen=None,
     *args,
-    state=None,
     **kwargs
 ):
-    if state == None:
-        if key.startswith('ep'):
-            state = 'ep'
-        elif key.startswith('ss'):
-            state = 'ss'
-        elif key.startswith('av'):
-            state = 'av'
-        elif key.startswith('md'):
-            state = 'md'
-        # elif key.startswith('ep'):
-        #     state = 'ep'
-        else:
-            parts = key.split('/')
-            if len(parts) <= 1:
-                return None
-            for part in parts:
-                try:
-                    ret = get_any(part, *args, **kwargs)
-                    if ret != None:
-                        return ret
-                except:
-                    pass
+    if key.startswith('ep'):
+        state = 'ep'
+    elif key.startswith('ss'):
+        state = 'ss'
+    elif key.startswith('av'):
+        state = 'av'
+    elif key.startswith('md'):
+        state = 'md'
+    # elif key.startswith('ep'):
+    #     state = 'ep'
+    else:
+        parts = key.split('/')
+        if len(parts) <= 1:
             return None
-    results = {}
+        for part in parts:
+            try:
+                ret = get_any_cid(part, *args, **kwargs)
+                if ret != None:
+                    return ret
+            except:
+                pass
+        return None
     while state in ('av', 'bv', 'BV', 'ep', 'md', 'ss'):
         key = route[state](key)
-        results[state] = key
         state = nextroute[state]
     if state == 'cid':
         if maxlen:
@@ -554,22 +549,25 @@ def get_any(
             get_cid(cid, name_pattern.format(episode_index=eid, **episode))
             for eid, (cid, episode) in enumerate(key)
         ]
-        results[state] = key
-        state = 'join'
+        return key
+
+def get_danmaku_joined(
+    key,
+    joiner: Callable[[str, str], str] = None,
+    *args,
+    **kwargs
+):
     try:
-        key_join = [None for _ in key]
-        if state == 'join':
-            if joiner:
-                key_join = [joiner(base, ext) for base, ext in key]
-            state = 'xml'
-        if state == 'xml':
-            key = [
-                danmaku2ass(
-                    base + ext, 'autodetect', base + '.ass', *args, joined_ass=joined_ass, **kwargs
-                )
-                for (base, ext), joined_ass in zip(key, key_join)
-            ]
-            results[state] = key
+        if joiner:
+            key_join = [joiner(base, ext) for base, ext in key]
+        else:
+            key_join = [None for _ in key]
+        key = [
+            danmaku2ass(
+                base + ext, 'autodetect', base + '.ass', *args, joined_ass=joined_ass, **kwargs
+            )
+            for (base, ext), joined_ass in zip(key, key_join)
+        ]
     except Exception as e:
         for i in key_join:
             if hasattr(i, 'close'):
@@ -578,7 +576,7 @@ def get_any(
                 except:
                     pass
         raise e
-    return results
+    return key
 
 
 if __name__ == '__main__':
@@ -602,7 +600,7 @@ if __name__ == '__main__':
     # fmt: off
     parser.add_argument('-l', '--local',
                         help='本地视频文件夹（默认为当前路径）')
-    parser.add_argument('-r', '--remote',
+    parser.add_argument('-r', '--remote', action='append',
                         help='b站ID（av/BV/ss/ep开头均可，网址也可以），留空代表读取本地弹幕文件')
     parser.add_argument('-t', '--tag',
                         help='字幕文件标签，用于区分弹幕和一般字幕。默认为{tag}'.format(**cfg))
@@ -717,19 +715,23 @@ if __name__ == '__main__':
             cfg['joiner'] = lambda base, ext: ffmpeg_get_subtitle(pool[base])
         else:
             cfg['joiner'] = lambda base, ext: ffmpeg_get_subtitle(pool[base[:-lentag]])
-    if args.remote:
-        if names_by_episode == None:
-            videos_base = [v for v, _ in videos]
-            names_by_episode = analysis_pattern_lcs(videos_base)
-        formatter = lambda *x, **k: names_by_episode[k['episode_index']] + tag
-        get_any(
-            args.remote,
-            name_pattern=formattable(None, formatter),
-            maxlen=len(names_by_episode),
-            **cfg
-        )
-    else:
-        # danmakus = [(base, ext) for base, ext in danmakus if base.endswith(tag) and ext in danmaku_ext]
-        get_any(danmakus, None, state='join', **cfg)
+    danmaku_pool = []
+    names_by_episode_local = None
+    for remote in args.remote:
+        if remote != '':
+            if names_by_episode_local == None:
+                videos_base = [v for v, _ in videos]
+                names_by_episode_local = analysis_pattern_lcs(videos_base)
+            names_by_episode = names_by_episode_local[len(danmaku_pool):]
+            formatter = lambda *x, **k: names_by_episode[k['episode_index']] + tag
+            danmaku_pool.extend(get_any_cid(
+                remote,
+                name_pattern=formattable(None, formatter),
+                maxlen=len(names_by_episode),
+                **cfg
+            ))
+        else:
+            danmaku_pool.extend(danmakus)
+    get_danmaku_joined(danmaku_pool, **cfg)
     if os.isatty(0):
         input('完成，按任意键关闭')
