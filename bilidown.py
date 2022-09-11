@@ -65,6 +65,27 @@ video_ext = {
 }
 subtitle_ext = {'.ass', '.srt', '.smi', '.ssa', '.sub', '.stl', '.idx'}
 danmaku_ext = {'.xml', '.json', '.protobuf'}
+subtitle_guess = list(
+    enumerate(
+        [
+            'default',
+            'ch',
+            'chn',
+            'chinese',
+            'zh',
+            '中文',
+            'sc',
+            'SC',
+            'simplified chinese',
+            'zh_hans',
+            'zh_cn',
+            'zh_CN',
+            '简体',
+            '简中',
+            '简体中文',
+        ]
+    )
+)
 
 _T = TypeVar('_T')
 
@@ -468,12 +489,10 @@ def ffmpeg_get_subtitle(file):
                 cnt -= 1
             else:
                 continue
-            if '中文' in line and best_guess < 1:
-                best_guess = 1
-                best_subtitle = subtitle_id
-            if '简体' in line and best_guess < 2:
-                best_guess = 2
-                best_subtitle = subtitle_id
+            for guess, keyword in subtitle_guess[best_guess:]:
+                if keyword in line:
+                    best_guess = guess
+                    best_subtitle = subtitle_id
         return Popen(
             [
                 'ffmpeg',
