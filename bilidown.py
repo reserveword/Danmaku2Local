@@ -137,6 +137,30 @@ class combinations(Sequence):
         return self.length * (self.length - 1)
 
 
+def list_mapping(li: List[int]):
+    def mapper(id: int):
+        if id < len(li):
+            return li[id]
+        else:
+            return id
+
+    return mapper
+
+
+def dict_mapping(di: Dict[int, int]):
+    def mapper(id: int):
+        if id in di:
+            return di[id]
+        else:
+            return id
+
+    return mapper
+
+
+def lambda_mapping(l: str):
+    return lambda x: eval(l, {'x': x})
+
+
 def loadconfig() -> dict:
     try:
         with open(os.path.join(sys.path[0], 'bilidown.pickle'), 'rb') as cfg:
@@ -301,7 +325,7 @@ def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
 
 
 @prefix('cid', on=False)
-def get_cid(cid, name=None) -> Tuple[str, str]:
+def get_cid(cid, name=None, mode='xb') -> Tuple[str, str]:
     print('cid', cid)
     if name == None:
         name = cid + '.xml'
@@ -312,7 +336,7 @@ def get_cid(cid, name=None) -> Tuple[str, str]:
             print(response.status_code, response.content.decode())
             raise response
         try:
-            with open(name, 'xb') as file:
+            with open(name, mode) as file:
                 for content in response.iter_content(None):
                     file.write(content)
             # danmaku2ass(name, 'autodetect', os.path.splitext(
@@ -510,7 +534,7 @@ def ffmpeg_get_subtitle(file):
         ).stdout.readlines()
 
 
-def get_any_cid(key, name_pattern, maxlen=None, *args, **kwargs):
+def get_any_cid(key, name_pattern, maxlen=None, mode='xb', *args, **kwargs):
     if key.startswith('ep'):
         state = 'ep'
     elif key.startswith('ss'):
@@ -527,7 +551,7 @@ def get_any_cid(key, name_pattern, maxlen=None, *args, **kwargs):
             return None
         for part in parts:
             try:
-                ret = get_any_cid(part, *args, **kwargs)
+                ret = get_any_cid(part, name_pattern, maxlen, mode, *args, **kwargs)
                 if ret != None:
                     return ret
             except:
@@ -540,7 +564,7 @@ def get_any_cid(key, name_pattern, maxlen=None, *args, **kwargs):
         if maxlen:
             key = key[:maxlen]
         key = [
-            get_cid(cid, name_pattern.format(episode_index=eid, **episode))
+            get_cid(cid, name_pattern.format(episode_index=eid, **episode), mode)
             for eid, (cid, episode) in enumerate(key)
         ]
         return key
@@ -592,6 +616,8 @@ if __name__ == '__main__':
                         help='本地视频文件夹（默认为当前路径）')
     parser.add_argument('-r', '--remote', action='append',
                         help='b站ID（av/BV/ss/ep开头均可，网址也可以），留空代表读取本地弹幕文件')
+    parser.add_argument('-o', '--overwrite', action='store_true',
+                        help='覆盖本地弹幕文件')
     parser.add_argument('-t', '--tag',
                         help='字幕文件标签，用于区分弹幕和一般字幕。默认为{tag}'.format(**cfg))
     parser.add_argument('--set-config', action='store_true',
@@ -606,6 +632,12 @@ if __name__ == '__main__':
                         help='字幕文件编码，默认utf-8')
     parser.add_argument('--shuffle-branch', action='store_true',
                         help='让形如10.5集的集数放在最后，默认插在10集和11集之间')
+    parser.add_argument('-m', '--mapping',
+                        help='手动定义各集顺序，输入视频序号输出弹幕序号。'
+                             '如 [1,3,2,4,5,6,7,8] 将二三集调换顺序、'
+                             '{1:2,3:4} 将第二集弹幕映射到第一集（和第二集）视频上、'
+                             '第四集弹幕映射到第三集（和第四集）视频上、'
+                             'lambda x:x-1 将每一集弹幕映射到下一集视频上')
     # args from Danmaku2ASS
     parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
                         help='Stage size in pixels')
@@ -630,6 +662,21 @@ if __name__ == '__main__':
     # end of args from Danmaku2ASS
     # fmt: on
     args = parser.parse_args()
+    # 解析集数映射关系
+    if args.mapping:
+        mapping = args.mapping
+        if mapping[0] == '[':
+            args.mapping = list_mapping([int(x) for x in mapping[1:-1].split(',').strip(',')])
+        if mapping[0] == '{':
+            args.mapping = dict_mapping(
+                {
+                    int(x.split(':')[0]): int(x.split(':')[1])
+                    for x in mapping[1:-1].split(',').strip(',')
+                }
+            )
+        if mapping.startswith('lambda x:'):
+            args.mapping = lambda_mapping(mapping[9:])
+    # 设置分辨率
     try:
         width, height = str(args.size).split('x', 1)
         width = int(width)
@@ -714,12 +761,15 @@ if __name__ == '__main__':
                 names_by_episode_local = analysis_pattern_lcs(videos_base)
             names_by_episode = names_by_episode_local[len(danmaku_pool) :]
             formatter = lambda *x, **k: names_by_episode[k['episode_index']] + tag
+            if args.mapping and callable(args.mapping):
+                formatter = lambda *x, **k: names_by_episode[args.mapping(k['episode_index'] + 1) - 1] + tag
             danmaku_pool.extend(
                 get_any_cid(
                     remote,
                     name_pattern=formattable(None, formatter),
                     maxlen=len(names_by_episode),
-                    **cfg
+                    mode=('xb' if not args.overwrite else 'wb'),
+                    **cfg,
                 )
             )
         else:
