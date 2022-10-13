@@ -633,11 +633,11 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle-branch', action='store_true',
                         help='让形如10.5集的集数放在最后，默认插在10集和11集之间')
     parser.add_argument('-m', '--mapping',
-                        help='手动定义各集顺序，输入视频序号输出弹幕序号。'
+                        help='手动定义各集顺序，输入弹幕序号输出视频序号。'
                              '如 [1,3,2,4,5,6,7,8] 将二三集调换顺序、'
-                             '{1:2,3:4} 将第二集弹幕映射到第一集（和第二集）视频上、'
-                             '第四集弹幕映射到第三集（和第四集）视频上、'
-                             'lambda x:x-1 将每一集弹幕映射到下一集视频上')
+                             '{1:2,3:4} 将第一集弹幕映射到第二集视频上、'
+                             '第三集弹幕映射到第四集视频上（同时第一集和第二集就没有弹幕了）、'
+                             'lambda x:x+1 将每一集弹幕映射到下一集视频上')
     # args from Danmaku2ASS
     parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
                         help='Stage size in pixels')
