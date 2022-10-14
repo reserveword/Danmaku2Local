@@ -4,6 +4,7 @@
 
 import argparse
 from collections import Counter, defaultdict
+import datetime
 import functools
 from io import BytesIO, FileIO, StringIO, TextIOWrapper
 import pickle
@@ -137,22 +138,22 @@ class combinations(Sequence):
         return self.length * (self.length - 1)
 
 
-def list_mapping(li: List[int]):
+def list_mapping(li: List[int], default=None):
     def mapper(id: int):
         if id < len(li):
             return li[id]
         else:
-            return id
+            return id if default is None else default
 
     return mapper
 
 
-def dict_mapping(di: Dict[int, int]):
+def dict_mapping(di: Dict[int, int], default=None):
     def mapper(id: int):
         if id in di:
             return di[id]
         else:
-            return id
+            return id if default is None else default
 
     return mapper
 
@@ -204,7 +205,7 @@ def tostr(x):
         return str(x)
 
 
-def danmaku2ass(*args, joined_ass=None, **kwargs):
+def danmaku2ass(*args, joined_ass=None, shift=0, **kwargs):
     kwargs.setdefault('stage_width', kwargs.pop('width', None))
     kwargs.setdefault('stage_height', kwargs.pop('height', None))
     if joined_ass == None:
@@ -215,13 +216,13 @@ def danmaku2ass(*args, joined_ass=None, **kwargs):
     if type(joined_ass) == str:
         encoding = kwargs.get('join_encoding', 'utf-8')
         with open(joined_ass, 'r', encoding=encoding) as file:
-            return danmaku2ass(*args, joined_ass=ass.parse_file(file), **kwargs)
+            return danmaku2ass(*args, joined_ass=ass.parse_file(file), shift=shift, **kwargs)
     if isinstance(joined_ass, (list, Generator, zip)):
-        return danmaku2ass(*args, joined_ass=ass.parse_file(tostr(j) for j in joined_ass), **kwargs)
+        return danmaku2ass(*args, joined_ass=ass.parse_file(tostr(j) for j in joined_ass), shift=shift, **kwargs)
     if isinstance(joined_ass, TextIO):
-        return danmaku2ass(*args, joined_ass=ass.parse_file(joined_ass), **kwargs)
+        return danmaku2ass(*args, joined_ass=ass.parse_file(joined_ass), shift=shift, **kwargs)
     if isinstance(joined_ass, (BytesIO, BinaryIO, FileIO)):
-        return danmaku2ass(*args, joined_ass=ass.parse_file(TextIOWrapper(joined_ass)), **kwargs)
+        return danmaku2ass(*args, joined_ass=ass.parse_file(TextIOWrapper(joined_ass)), shift=shift, **kwargs)
     if isinstance(joined_ass, ass.Document):
         args = list(args)
         danmaku_ass = StringIO()
@@ -242,6 +243,10 @@ def danmaku2ass(*args, joined_ass=None, **kwargs):
         Danmaku2ASS(*args, **kwargs)
         danmaku_ass.seek(0)
         danmaku_ass = ass.parse_file(danmaku_ass)
+        if shift != 0:
+            for event in danmaku_ass.events._lines:
+                event.start += datetime.timedelta(seconds=shift)
+                event.end += datetime.timedelta(seconds=shift)
         joined_ass.styles._lines += danmaku_ass.styles._lines
         joined_ass.events._lines += danmaku_ass.events._lines
         with open(danmaku_ass_path, 'w', encoding=encoding) as f:
@@ -570,7 +575,7 @@ def get_any_cid(key, name_pattern, maxlen=None, mode='xb', *args, **kwargs):
         return key
 
 
-def get_danmaku_joined(key, joiner: Callable[[str, str], str] = None, *args, **kwargs):
+def get_danmaku_joined(key, joiner: Callable[[str, str], str] = None, shift=lambda x:0, *args, **kwargs):
     try:
         if joiner:
             key_join = [joiner(base, ext) for base, ext in key]
@@ -578,9 +583,9 @@ def get_danmaku_joined(key, joiner: Callable[[str, str], str] = None, *args, **k
             key_join = [None for _ in key]
         key = [
             danmaku2ass(
-                base + ext, 'autodetect', base + '.ass', *args, joined_ass=joined_ass, **kwargs
+                base + ext, 'autodetect', base + '.ass', *args, joined_ass=joined_ass, shift=shift(i), **kwargs
             )
-            for (base, ext), joined_ass in zip(key, key_join)
+            for (base, ext), joined_ass, i in zip(key, key_join, range(1, len(key) + 1))
         ]
     except Exception as e:
         for i in key_join:
@@ -638,6 +643,9 @@ if __name__ == '__main__':
                              '{1:2,3:4} 将第一集弹幕映射到第二集视频上、'
                              '第三集弹幕映射到第四集视频上（同时第一集和第二集就没有弹幕了）、'
                              'lambda x:x+1 将每一集弹幕映射到下一集视频上')
+    parser.add_argument('--shift',
+                        help='调整各集弹幕相对时间，以秒计，正数会让弹幕延迟出现，如[5,4,3]会让前三集弹幕分别延迟5、4、3秒出现。'
+                             '只有与现存字幕合并时才生效（注：当与mapping一同使用是集数指的是弹幕的集数）')
     # args from Danmaku2ASS
     parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
                         help='Stage size in pixels')
@@ -666,16 +674,30 @@ if __name__ == '__main__':
     if args.mapping:
         mapping = args.mapping
         if mapping[0] == '[':
-            args.mapping = list_mapping([int(x) for x in mapping[1:-1].split(',').strip(',')])
+            args.mapping = list_mapping([int(x) for x in mapping[1:-1].strip(',').split(',')])
         if mapping[0] == '{':
             args.mapping = dict_mapping(
                 {
                     int(x.split(':')[0]): int(x.split(':')[1])
-                    for x in mapping[1:-1].split(',').strip(',')
+                    for x in mapping[1:-1].strip(',').split(',')
                 }
             )
         if mapping.startswith('lambda x:'):
             args.mapping = lambda_mapping(mapping[9:])
+    # 解析弹幕延迟映射关系
+    if args.shift:
+        shift = args.shift
+        if shift[0] == '[':
+            args.shift = list_mapping([int(x) for x in shift[1:-1].strip(',').split(',')], 0)
+        if shift[0] == '{':
+            args.shift = dict_mapping(
+                {
+                    int(x.split(':')[0]): int(x.split(':')[1])
+                    for x in shift[1:-1].strip(',').split(',')
+                }, 0
+            )
+        if shift.startswith('lambda x:'):
+            args.shift = lambda_mapping(shift[9:])
     # 设置分辨率
     try:
         width, height = str(args.size).split('x', 1)
@@ -774,6 +796,6 @@ if __name__ == '__main__':
             )
         else:
             danmaku_pool.extend(danmakus)
-    get_danmaku_joined(danmaku_pool, **cfg)
+    get_danmaku_joined(danmaku_pool, shift=args.shift, **cfg)
     if os.isatty(0):
         input('完成，按任意键关闭')
