@@ -8,6 +8,7 @@ import datetime
 import functools
 from io import BytesIO, FileIO, StringIO, TextIOWrapper
 import pickle
+import shutil
 from subprocess import PIPE, Popen
 import sys
 from typing import (
@@ -16,6 +17,7 @@ from typing import (
     Callable,
     Dict,
     Generator,
+    Iterable,
     List,
     MutableSequence,
     ParamSpecArgs,
@@ -138,7 +140,36 @@ class combinations(Sequence):
         return self.length * (self.length - 1)
 
 
+class Pairing:
+    def __init__(self, mapper: Callable[[int], int], initial=1) -> None:
+        self.mapper = mapper
+        self.cache = []
+        self.initial = initial
+        self.head = initial
+
+    def push(self, items: Iterable) -> Callable[[int], Any]:
+        self.cache.extend(items)
+
+        def pairer(index: int):
+            idx = self.mapper(index + self.head) - self.head
+            if idx < 0 or idx >= len(self.cache):
+                return None
+            else:
+                return self.cache[idx]
+
+        return pairer
+
+    def __getitem__(self, index: int):
+        idx = self.mapper(index + self.initial) - self.initial
+        if idx < 0 or idx >= len(self.cache):
+            return None
+        else:
+            return self.cache[idx]
+
+
 def list_mapping(li: List[int], default=None):
+    li.insert(0, 0)
+
     def mapper(id: int):
         if id < len(li):
             return li[id]
@@ -176,9 +207,9 @@ def saveconfig(cfg):
         pickle.dump(cfg, cfgfile)
 
 
-def matching_sorter(items, videos, sorter='sort'):
+def matching_sorter(items, sorter='sort'):
     if sorter == 'sort':
-        return {vb: ib + ie for (vb, ve), (ib, ie) in zip(sorted(videos), sorted(items))}
+        return [ib + ie for (ib, ie) in sorted(items)]
     elif sorter == 'shuffle':
 
         def sortfunc(x):
@@ -188,10 +219,7 @@ def matching_sorter(items, videos, sorter='sort'):
                 x,
             )
 
-        return {
-            vb: ib + ie
-            for (vb, ve), (ib, ie) in zip(sorted(videos, key=sortfunc), sorted(items, key=sortfunc))
-        }
+        return [ib + ie for (ib, ie) in sorted(items, key=sortfunc)]
 
 
 def tostr(x):
@@ -218,11 +246,15 @@ def danmaku2ass(*args, joined_ass=None, shift=0, **kwargs):
         with open(joined_ass, 'r', encoding=encoding) as file:
             return danmaku2ass(*args, joined_ass=ass.parse_file(file), shift=shift, **kwargs)
     if isinstance(joined_ass, (list, Generator, zip)):
-        return danmaku2ass(*args, joined_ass=ass.parse_file(tostr(j) for j in joined_ass), shift=shift, **kwargs)
+        return danmaku2ass(
+            *args, joined_ass=ass.parse_file(tostr(j) for j in joined_ass), shift=shift, **kwargs
+        )
     if isinstance(joined_ass, TextIO):
         return danmaku2ass(*args, joined_ass=ass.parse_file(joined_ass), shift=shift, **kwargs)
     if isinstance(joined_ass, (BytesIO, BinaryIO, FileIO)):
-        return danmaku2ass(*args, joined_ass=ass.parse_file(TextIOWrapper(joined_ass)), shift=shift, **kwargs)
+        return danmaku2ass(
+            *args, joined_ass=ass.parse_file(TextIOWrapper(joined_ass)), shift=shift, **kwargs
+        )
     if isinstance(joined_ass, ass.Document):
         args = list(args)
         danmaku_ass = StringIO()
@@ -316,6 +348,9 @@ def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
         and '第' not in episode.get('index')
         and '集' not in episode.get('index')
         and '话' not in episode.get('index')
+        and 'OP' not in episode.get('index').upper()
+        and 'ED' not in episode.get('index').upper()
+        and 'PV' not in episode.get('index').upper()
     ]
     # print list
     [
@@ -539,7 +574,7 @@ def ffmpeg_get_subtitle(file):
         ).stdout.readlines()
 
 
-def get_any_cid(key, name_pattern, maxlen=None, mode='xb', *args, **kwargs):
+def get_any_cid(key, maxlen=None, mode='xb', *args, **kwargs):
     if key.startswith('ep'):
         state = 'ep'
     elif key.startswith('ss'):
@@ -556,7 +591,7 @@ def get_any_cid(key, name_pattern, maxlen=None, mode='xb', *args, **kwargs):
             return None
         for part in parts:
             try:
-                ret = get_any_cid(part, name_pattern, maxlen, mode, *args, **kwargs)
+                ret = get_any_cid(part, maxlen, mode, *args, **kwargs)
                 if ret != None:
                     return ret
             except:
@@ -568,34 +603,43 @@ def get_any_cid(key, name_pattern, maxlen=None, mode='xb', *args, **kwargs):
     if state == 'cid':
         if maxlen:
             key = key[:maxlen]
-        key = [
-            get_cid(cid, name_pattern.format(episode_index=eid, **episode), mode)
-            for eid, (cid, episode) in enumerate(key)
-        ]
+        key = [(get_cid(cid, mode=mode), episode) for cid, episode in key]
         return key
 
 
-def get_danmaku_joined(key, joiner: Callable[[str, str], str] = None, shift=lambda x:0, *args, **kwargs):
+def get_danmaku_joined(
+    dmks,
+    names: Iterable[str],
+    *args,
+    joiner: Iterable[Tuple[List[bytes], str]] = None,
+    shift=lambda x: 0,
+    **kwargs
+):
     try:
-        if joiner:
-            key_join = [joiner(base, ext) for base, ext in key]
-        else:
-            key_join = [None for _ in key]
-        key = [
-            danmaku2ass(
-                base + ext, 'autodetect', base + '.ass', *args, joined_ass=joined_ass, shift=shift(i), **kwargs
-            )
-            for (base, ext), joined_ass, i in zip(key, key_join, range(1, len(key) + 1))
-        ]
+        names = list(names)
+        if joiner is None:
+            joiner = [(None, None) for _ in names]
+        for i, name, (joined, join_name) in zip(range(len(names)), names, joiner):
+            if dmks[i] is not None:
+                danmaku2ass(
+                    dmks[i],
+                    'autodetect',
+                    name + '.ass',
+                    *args,
+                    joined_ass=joined,
+                    shift=shift(i + 1),
+                    **kwargs,
+                )
+            else:
+                shutil.copy(join_name, name + '.ass')
     except Exception as e:
-        for i in key_join:
+        for i in joiner:
             if hasattr(i, 'close'):
                 try:
                     i.close()
                 except:
                     pass
         raise e
-    return key
 
 
 if __name__ == '__main__':
@@ -638,14 +682,15 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle-branch', action='store_true',
                         help='让形如10.5集的集数放在最后，默认插在10集和11集之间')
     parser.add_argument('-m', '--mapping',
-                        help='手动定义各集顺序，输入弹幕序号输出视频序号。'
+                        help='手动定义各集顺序，输入视频序号输出弹幕序号。'
                              '如 [1,3,2,4,5,6,7,8] 将二三集调换顺序、'
-                             '{1:2,3:4} 将第一集弹幕映射到第二集视频上、'
-                             '第三集弹幕映射到第四集视频上（同时第一集和第二集就没有弹幕了）、'
-                             'lambda x:x+1 将每一集弹幕映射到下一集视频上')
+                             '{1:2,3:4} 将第二集弹幕映射到第一、二集视频上、'
+                             '第四集弹幕映射到第三、四集视频上、'
+                             'lambda x:x+1 将每一集弹幕映射到下一集视频上，'
+                             '有多季弹幕时使用的是总集数')
     parser.add_argument('--shift',
                         help='调整各集弹幕相对时间，以秒计，正数会让弹幕延迟出现，如[5,4,3]会让前三集弹幕分别延迟5、4、3秒出现。'
-                             '只有与现存字幕合并时才生效（注：当与mapping一同使用是集数指的是弹幕的集数）')
+                             '只有与现存字幕合并时才生效（注：当与mapping一同使用是集数指的是视频的集数）')
     # args from Danmaku2ASS
     parser.add_argument('-s', '--size', metavar='WIDTHxHEIGHT',
                         help='Stage size in pixels')
@@ -684,20 +729,23 @@ if __name__ == '__main__':
             )
         if mapping.startswith('lambda x:'):
             args.mapping = lambda_mapping(mapping[9:])
+    else:
+        args.mapping = lambda x: x
     # 解析弹幕延迟映射关系
     if args.shift:
         shift = args.shift
         if shift[0] == '[':
-            args.shift = list_mapping([int(x) for x in shift[1:-1].strip(',').split(',')], 0)
+            cfg['shift'] = list_mapping([int(x) for x in shift[1:-1].strip(',').split(',')], 0)
         if shift[0] == '{':
-            args.shift = dict_mapping(
+            cfg['shift'] = dict_mapping(
                 {
                     int(x.split(':')[0]): int(x.split(':')[1])
                     for x in shift[1:-1].strip(',').split(',')
-                }, 0
+                },
+                0,
             )
         if shift.startswith('lambda x:'):
-            args.shift = lambda_mapping(shift[9:])
+            cfg['shift'] = lambda_mapping(shift[9:])
     # 设置分辨率
     try:
         width, height = str(args.size).split('x', 1)
@@ -755,47 +803,32 @@ if __name__ == '__main__':
             }
         )
     # 附加字幕位置
-    names_by_episode = None
     if args.join != None:
         base, ext = os.path.splitext(args.join)
         if not ext and base in video_ext:
-            pool = matching_sorter(items=videos, videos=videos, sorter=args.join_sort)
+            pool = matching_sorter(items=videos, sorter=args.join_sort)
         elif not ext and base in subtitle_ext:
-            pool = matching_sorter(items=subtitles, videos=videos, sorter=args.join_sort)
+            pool = matching_sorter(items=subtitles, sorter=args.join_sort)
         elif not ext or ext == '.':
             items = filter(lambda x: x[0].endswith(base), videos.union(subtitles))
-            pool = matching_sorter(items=items, videos=videos, sorter=args.join_sort)
+            pool = matching_sorter(items=items, sorter=args.join_sort)
         else:
             items = filter(lambda x: x[0].endswith(base) and x[1] == ext, videos.union(subtitles))
-            pool = matching_sorter(items=items, videos=videos, sorter=args.join_sort)
-        videos_base = [v for v, _ in videos]
-        lentag = len(tag) if tag != None else 0
-        if lentag == 0:
-            cfg['joiner'] = lambda base, ext: ffmpeg_get_subtitle(pool[base])
-        else:
-            cfg['joiner'] = lambda base, ext: ffmpeg_get_subtitle(pool[base[:-lentag]])
-    danmaku_pool = []
-    names_by_episode_local = None
+            pool = matching_sorter(items=items, sorter=args.join_sort)
+        cfg['joiner'] = ((ffmpeg_get_subtitle(item), item) for item in pool)
+    danmaku_pool = Pairing(args.mapping)
+    videos_base = [v for v, _ in videos]
+    names_by_episode = analysis_pattern_lcs(videos_base)
     for remote in args.remote:
         if remote != '':
-            if names_by_episode_local == None:
-                videos_base = [v for v, _ in videos]
-                names_by_episode_local = analysis_pattern_lcs(videos_base)
-            names_by_episode = names_by_episode_local[len(danmaku_pool) :]
-            formatter = lambda *x, **k: names_by_episode[k['episode_index']] + tag
-            if args.mapping and callable(args.mapping):
-                formatter = lambda *x, **k: names_by_episode[args.mapping(k['episode_index'] + 1) - 1] + tag
-            danmaku_pool.extend(
-                get_any_cid(
-                    remote,
-                    name_pattern=formattable(None, formatter),
-                    maxlen=len(names_by_episode),
-                    mode=('xb' if not args.overwrite else 'wb'),
-                    **cfg,
-                )
+            dmks = get_any_cid(
+                remote,
+                mode=('xb' if not args.overwrite else 'wb'),
+                **cfg,
             )
+            danmaku_pool.push(base + ext for (base, ext), episode in dmks)
         else:
-            danmaku_pool.extend(danmakus)
-    get_danmaku_joined(danmaku_pool, shift=args.shift, **cfg)
+            danmaku_pool.push(danmakus)
+    get_danmaku_joined(danmaku_pool, (name + tag for name in names_by_episode), **cfg)
     if os.isatty(0):
         input('完成，按任意键关闭')
