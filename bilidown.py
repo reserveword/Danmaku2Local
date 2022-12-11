@@ -212,7 +212,8 @@ def saveconfig(cfg):
         pickle.dump(cfg, cfgfile)
 
 
-def get_id_extra(x: str):
+# 获取字符串含有的第一个整数部分，以及抽出来之后剩下的字符串
+def get_id_extra(x: str) -> Tuple[int, str]:
     idhead = 0
     idtail = 0
     for i in x:
@@ -232,17 +233,56 @@ def get_id_extra(x: str):
     except ValueError:
         return 0, x
 
+@functools.total_ordering
+class reversedstr(str):
+    '''string, but order is reversed'''
+    def __lt__(self, __x: str) -> bool:
+        return not super().__lt__(__x)
 
-def matching_sorter(items, sorter='sort'):
-    if sorter == 'sort':
-        return sorted(items)
-    elif sorter == 'shuffle':
+def sort_default(item: str) -> tuple:
+    builder = []
+    head = 0
+    state = str
+    for i, c in enumerate(item):
+        if state is str:
+            if c in '0123456789':
+                # 让这个位置不是数字的字符串能够正常排序，如果同一位置的字符比0大那么就比所有数字大，比0小就比所有数字小
+                builder.append(item[head:i] + '0')
+                head = i
+                state = int
+        else:
+            if c not in '0123456789':
+                builder.append(int(item[head:i]))
+                head = i
+                state = str
+    if state is str:
+        builder.append(item[head:])
+    else:
+        builder.append(int(item[head:]))
+    return *builder, item
 
-        def sortfunc(x):
-            i, e = get_id_extra(x)
-            return (e, i, x)
+def sort_plain(item: str) -> tuple:
+    return (item,)
+def sort_front(item: str) -> tuple:
+    i, e = get_id_extra(item)
+    return reversedstr(e), i, item
+def sort_middle(item: str) -> tuple:
+    i, e = get_id_extra(item)
+    return i, e, item
+def sort_end(item: str) -> tuple:
+    i, e = get_id_extra(item)
+    return e, i, item
 
-        return sorted(items, key=sortfunc)
+sorters = {
+    'default': sort_default,
+    'plain': sort_plain,
+    'front': sort_front,
+    'middle': sort_middle,
+    'end': sort_end,
+}
+
+def matching_sorter(items, sorter='default'):
+        return sorted(items, key=sorters[sorter])
 
 
 def tostr(x):
@@ -359,7 +399,9 @@ def get_bv(bv, *args, **kwargs):
 
 
 @prefix('ss', on=False)
-def get_ss(ss, episode_filter=normal_episode_check, *args, **kwargs) -> List[Tuple[int, Dict[str, Any]]]:
+def get_ss(
+    ss, episode_filter=normal_episode_check, *args, **kwargs
+) -> List[Tuple[int, Dict[str, Any]]]:
     ss_json = requests.get(url_cid.format(ss=ss)).json()
     episodes = [
         {
@@ -432,7 +474,16 @@ def get_local():
     return videos, subtitles, danmakus
 
 
-def analysis_pattern_lcs(names, shuffle=False):
+def isitindex(ids: List[int]) -> float:
+    l = ids.__len__()
+    bag = set()
+    for i in ids:
+        if 0 <= i <= l:
+            bag.add(i)
+    return bag.__len__() / l
+
+
+def analysis_pattern_lcs(names, sortmode='default'):
     # 用最长公共子序列猜测剧集使用的名称模式
     count_max = 1000
     if len(names) ** 2 - len(names) > count_max:
@@ -475,7 +526,7 @@ def analysis_pattern_lcs(names, shuffle=False):
     # 在最长公共子序列中断的地方查看，取数字最多的地方为集数字段
     # 如果最长公共子序列的最后不是原字符串的最后（即序列后还有一个字段），pattern结尾会有一个空字符串
     print(pattern)
-    slot = [[0, []] for _ in pattern]
+    slot: List[List[Tuple[int, str, Any]]] = [[] for _ in pattern]
     for i in names:
         head = 0
         for j, k in enumerate(pattern):
@@ -484,22 +535,15 @@ def analysis_pattern_lcs(names, shuffle=False):
             except ValueError:
                 break
             valstr = i[head:newhead]
-            valint, others = get_id_extra(valstr)
-            slot[j][0] += valint
-            slot[j][1].append((valint, others, i))
+            valint, _ = get_id_extra(valstr)
+            slot[j].append((valint, valstr, i))
             head = newhead + len(k)
+    # 确定哪个字段像集数字段
+    orderbyindex = sorted(slot, key=lambda x: isitindex([k[0] for k in x]))[-1]
+    # 集数字段排序规则
+    sorter = sorters[sortmode]
     # 将视频按照集数字段映射，弹幕就按照这个命名
-    if shuffle:
-        # 先按照非数字符号排序，没有非数字符号的按照整数排序
-        def sorter(x):
-            return (x[1], x[0], x[2])
-
-    else:
-        # 先按照整数排序，再按照原名排序
-        def sorter(x):
-            return (x[0], x[2])
-
-    names_by_episode = [name for _, _, name in sorted(sorted(slot)[-1][1], key=sorter)]
+    names_by_episode = [name for _, _, name in sorted(orderbyindex, key=lambda x: sorter(x[1]))]
     print('各集名称：')
     print('\n'.join(names_by_episode))
     return names_by_episode
@@ -620,7 +664,16 @@ def get_any_cid(key, maxlen=None, mode='xb', *args, **kwargs):
             key = key[:maxlen]
         episode_bias = kwargs.get('episode_bias', '')
         key = [
-            (get_cid(cid, name=f'{episode_bias}{episode["index"]:>03}_{cid}', mode=mode, *args, **kwargs), episode)
+            (
+                get_cid(
+                    cid,
+                    name=f'{episode_bias}{episode["index"]:>03}_{cid}',
+                    mode=mode,
+                    *args,
+                    **kwargs,
+                ),
+                episode,
+            )
             for cid, episode in key
         ]
         return key
@@ -665,7 +718,7 @@ if __name__ == '__main__':
     argcfg = {
         'tag': '.danmaku',
         'join_encoding': 'utf-8',
-        'shuffle_branch': None,
+        'sort': 'default',
         'font_face': '(FONT) sans-serif'[7:],
         'font_size': 25.0,
         'text_opacity': 1.0,
@@ -694,12 +747,12 @@ if __name__ == '__main__':
                         help='重置字幕默认样式（同时以新设置同步弹幕）')
     parser.add_argument('-j', '--join', '--join-subtitle', metavar='glob',
                         help='从能匹配glob的文件读取字幕字幕并合并进弹幕中（需要ffmpeg，支持视频软内嵌字幕）')
-    parser.add_argument('--join-sort', choices=['sort', 'shuffle'], default='sort',
-                        help='字幕文件与视频匹配方法（sort=排序（默认）, shuffle=按--shuffle-branch排序）')
+    parser.add_argument('--sort', choices=['default', 'plain', 'front', 'middle', 'end'],
+                        help='字幕文件与视频匹配方法（default=默认排序, plain=字典序, front=带前后缀的集数在最前面, middle=对应集中间, end=最后面）')
+    parser.add_argument('--sort-sub', choices=['default', 'plain', 'front', 'middle', 'end'],
+                        help='字幕文件与视频匹配方法（default=默认排序, plain=字典序, front=带前后缀的集数在最前面, middle=对应集中间, end=最后面）')
     parser.add_argument('--join-encoding', default='utf-8',
                         help='字幕文件编码，默认utf-8')
-    parser.add_argument('--shuffle-branch', action='store_true',
-                        help='让形如10.5集的集数放在最后，默认插在10集和11集之间')
     parser.add_argument('-m', '--mapping',
                         help='手动定义各集顺序，输入视频序号输出弹幕序号。'
                              '如 [1,3,2,4,5,6,7,8] 将二三集调换顺序、'
@@ -781,7 +834,7 @@ if __name__ == '__main__':
         for k, v in {
             'tag': args.tag,
             'join_encoding': args.join_encoding,
-            'shuffle_branch': args.shuffle_branch,
+            'sort': args.sort,
             'font_face': args.font,
             'font_size': args.fontsize,
             'text_opacity': args.alpha,
@@ -799,7 +852,6 @@ if __name__ == '__main__':
         saveconfig(cfg)
         exit(0)
     tag = cfg.pop('tag')
-    shuffle_branch = cfg.pop('shuffle_branch')
     # 本地视频位置
     if args.local == None:
         args.local = input('请输入本地视频文件夹（默认为当前路径）：')
@@ -823,18 +875,9 @@ if __name__ == '__main__':
         )
     # 附加字幕位置
     if args.join != None:
-        # base, ext = os.path.splitext(args.join)
-        # if not ext and base in video_ext:
-        #     pool = matching_sorter(items=videos, sorter=args.join_sort)
-        # elif not ext and base in subtitle_ext:
-        #     pool = matching_sorter(items=subtitles, sorter=args.join_sort)
-        # elif not ext or ext == '.':
-        #     items = filter(lambda x: x[0].endswith(base), videos.union(subtitles))
-        #     pool = matching_sorter(items=items, sorter=args.join_sort)
-        # else:
-        #     items = filter(lambda x: x[0].endswith(base) and x[1] == ext, videos.union(subtitles))
-        #     pool = matching_sorter(items=items, sorter=args.join_sort)
-        pool = matching_sorter(glob(args.join), sorter=args.join_sort)
+        if args.sort_sub is None:
+            args.sort_sub = cfg['sort']
+        pool = matching_sorter(glob(args.join), sorter=args.sort_sub)
         cfg['joiner'] = ((ffmpeg_get_subtitle(item), item) for item in pool)
     danmaku_pool = Pairing(args.mapping)
     videos_base = [v for v, _ in videos]
@@ -847,14 +890,14 @@ if __name__ == '__main__':
                 # 解析集数过滤
                 if ep_filter[0] == '[':
                     epids = [int(x) for x in ep_filter[1:-1].strip(',').split(',')]
-                    cfg['episode_filter'] = lambda x:x['index'] in epids
+                    cfg['episode_filter'] = lambda x: x['index'] in epids
                 elif ep_filter.startswith('lambda x:'):
                     ep_lambda = ep_filter[9:]
                     cfg['episode_filter'] = lambda x: eval(ep_lambda, {'x': x})
                 else:
                     if ep_filter[0] in '"\'':
                         ep_filter = ep_filter[1:-1]
-                    cfg['episode_filter'] = lambda x:x['index'] == ep_filter
+                    cfg['episode_filter'] = lambda x: x['index'] == ep_filter
             else:
                 cfg['episode_filter'] = normal_episode_check
             dmks = get_any_cid(
