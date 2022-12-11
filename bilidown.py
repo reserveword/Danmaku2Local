@@ -31,6 +31,7 @@ import requests
 import lxml.html as html
 import re
 import os
+from glob import glob
 import random
 import cv2
 import ass
@@ -193,6 +194,10 @@ def lambda_mapping(l: str):
     return lambda x: eval(l, {'x': x})
 
 
+def normal_episode_check(episode):
+    return episode.get('episode_type') != -1 and episode.get('index').isdigit()
+
+
 def loadconfig() -> dict:
     try:
         with open(os.path.join(sys.path[0], 'bilidown.pickle'), 'rb') as cfg:
@@ -230,14 +235,14 @@ def get_id_extra(x: str):
 
 def matching_sorter(items, sorter='sort'):
     if sorter == 'sort':
-        return [ib + ie for (ib, ie) in sorted(items)]
+        return sorted(items)
     elif sorter == 'shuffle':
 
         def sortfunc(x):
             i, e = get_id_extra(x)
             return (e, i, x)
 
-        return [ib + ie for (ib, ie) in sorted(items, key=sortfunc)]
+        return sorted(items, key=sortfunc)
 
 
 def tostr(x):
@@ -344,17 +349,17 @@ def prefix(prefix, on=True):
 
 
 @prefix('av')
-def get_av(av):
+def get_av(av, *args, **kwargs):
     pass
 
 
 @prefix('BV')
-def get_bv(bv):
+def get_bv(bv, *args, **kwargs):
     pass
 
 
 @prefix('ss', on=False)
-def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
+def get_ss(ss, episode_filter=normal_episode_check, *args, **kwargs) -> List[Tuple[int, Dict[str, Any]]]:
     ss_json = requests.get(url_cid.format(ss=ss)).json()
     episodes = [
         {
@@ -362,7 +367,7 @@ def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
             'index': episode.get('index'),
         }
         for episode in ss_json.get('result', {}).get('episodes', {})
-        if episode.get('episode_type') != -1 and episode.get('index').isdigit()
+        if episode_filter(episode)
     ]
     # print list
     [
@@ -377,7 +382,7 @@ def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
 
 
 @prefix('cid', on=False)
-def get_cid(cid, name=None, mode='xb') -> Tuple[str, str]:
+def get_cid(cid, name=None, mode='xb', *args, **kwargs) -> Tuple[str, str]:
     print(f'cid: {cid}, name: {name}')
     if name == None:
         name = cid + '.xml'
@@ -399,7 +404,7 @@ def get_cid(cid, name=None, mode='xb') -> Tuple[str, str]:
 
 
 @prefix('ep', on=True)
-def get_ep(ep) -> str:
+def get_ep(ep, *args, **kwargs) -> str:
     page = html.fromstring(requests.get(url_ep.format(ep=ep)).content)
     metas = page.xpath('/html/head/meta[@property="og:url"]')
     if len(metas):
@@ -411,7 +416,7 @@ def get_ep(ep) -> str:
 
 
 @prefix('md', on=False)
-def get_md(md) -> str:
+def get_md(md, *args, **kwargs) -> str:
     md_json = requests.get(url_md.format(md=md)).json()
     ss = md_json['result']['media']['season_id']
     print('season', ss)
@@ -522,6 +527,7 @@ nextroute = {
 
 
 def ffmpeg_get_subtitle(file):
+    base, ext = os.path.splitext(file)
     if os.name == 'nt':
         whereis = 'which'
     if os.name == 'posix':
@@ -583,6 +589,7 @@ def ffmpeg_get_subtitle(file):
 
 
 def get_any_cid(key, maxlen=None, mode='xb', *args, **kwargs):
+    print(kwargs)
     if key.startswith('ep'):
         state = 'ep'
     elif key.startswith('ss'):
@@ -606,13 +613,14 @@ def get_any_cid(key, maxlen=None, mode='xb', *args, **kwargs):
                 pass
         return None
     while state in ('av', 'bv', 'BV', 'ep', 'md', 'ss'):
-        key = route[state](key)
+        key = route[state](key, *args, **kwargs)
         state = nextroute[state]
     if state == 'cid':
         if maxlen:
             key = key[:maxlen]
+        episode_bias = kwargs.get('episode_bias', '')
         key = [
-            (get_cid(cid, name=f'{episode["index"]:>03}_{cid}', mode=mode), episode)
+            (get_cid(cid, name=f'{episode_bias}{episode["index"]:>03}_{cid}', mode=mode, *args, **kwargs), episode)
             for cid, episode in key
         ]
         return key
@@ -684,8 +692,8 @@ if __name__ == '__main__':
                         help='更新字幕默认样式（只更新设置，不执行弹幕操作）')
     parser.add_argument('--reset-config', action='store_true',
                         help='重置字幕默认样式（同时以新设置同步弹幕）')
-    parser.add_argument('-j', '--join', '--join-subtitle', metavar='TAG',
-                        help='从以TAG结尾的文件读取字幕字幕并合并进弹幕中（需要ffmpeg，支持视频软内嵌字幕）')
+    parser.add_argument('-j', '--join', '--join-subtitle', metavar='glob',
+                        help='从能匹配glob的文件读取字幕字幕并合并进弹幕中（需要ffmpeg，支持视频软内嵌字幕）')
     parser.add_argument('--join-sort', choices=['sort', 'shuffle'], default='sort',
                         help='字幕文件与视频匹配方法（sort=排序（默认）, shuffle=按--shuffle-branch排序）')
     parser.add_argument('--join-encoding', default='utf-8',
@@ -815,23 +823,40 @@ if __name__ == '__main__':
         )
     # 附加字幕位置
     if args.join != None:
-        base, ext = os.path.splitext(args.join)
-        if not ext and base in video_ext:
-            pool = matching_sorter(items=videos, sorter=args.join_sort)
-        elif not ext and base in subtitle_ext:
-            pool = matching_sorter(items=subtitles, sorter=args.join_sort)
-        elif not ext or ext == '.':
-            items = filter(lambda x: x[0].endswith(base), videos.union(subtitles))
-            pool = matching_sorter(items=items, sorter=args.join_sort)
-        else:
-            items = filter(lambda x: x[0].endswith(base) and x[1] == ext, videos.union(subtitles))
-            pool = matching_sorter(items=items, sorter=args.join_sort)
+        # base, ext = os.path.splitext(args.join)
+        # if not ext and base in video_ext:
+        #     pool = matching_sorter(items=videos, sorter=args.join_sort)
+        # elif not ext and base in subtitle_ext:
+        #     pool = matching_sorter(items=subtitles, sorter=args.join_sort)
+        # elif not ext or ext == '.':
+        #     items = filter(lambda x: x[0].endswith(base), videos.union(subtitles))
+        #     pool = matching_sorter(items=items, sorter=args.join_sort)
+        # else:
+        #     items = filter(lambda x: x[0].endswith(base) and x[1] == ext, videos.union(subtitles))
+        #     pool = matching_sorter(items=items, sorter=args.join_sort)
+        pool = matching_sorter(glob(args.join), sorter=args.join_sort)
         cfg['joiner'] = ((ffmpeg_get_subtitle(item), item) for item in pool)
     danmaku_pool = Pairing(args.mapping)
     videos_base = [v for v, _ in videos]
     names_by_episode = analysis_pattern_lcs(videos_base)
     for remote in args.remote:
+        cfg.setdefault('episode_bias', '')
         if remote != '':
+            if ':' in remote:
+                remote, ep_filter = remote.split(':', 1)
+                # 解析集数过滤
+                if ep_filter[0] == '[':
+                    epids = [int(x) for x in ep_filter[1:-1].strip(',').split(',')]
+                    cfg['episode_filter'] = lambda x:x['index'] in epids
+                elif ep_filter.startswith('lambda x:'):
+                    ep_lambda = ep_filter[9:]
+                    cfg['episode_filter'] = lambda x: eval(ep_lambda, {'x': x})
+                else:
+                    if ep_filter[0] in '"\'':
+                        ep_filter = ep_filter[1:-1]
+                    cfg['episode_filter'] = lambda x:x['index'] == ep_filter
+            else:
+                cfg['episode_filter'] = normal_episode_check
             dmks = get_any_cid(
                 remote,
                 mode=('xb' if not args.overwrite else 'wb'),
@@ -840,6 +865,8 @@ if __name__ == '__main__':
             danmaku_pool.push(base + ext for (base, ext), episode in dmks)
         else:
             danmaku_pool.push(base + ext for (base, ext) in sorted(danmakus))
+        cfg['episode_bias'] += '_'
+        print(cfg)
     for i, j in enumerate(names_by_episode):
         print(danmaku_pool[i], j)
     get_danmaku_joined(danmaku_pool, (name + tag for name in names_by_episode), **cfg)
