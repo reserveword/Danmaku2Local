@@ -11,6 +11,8 @@
 #   https://github.com/m13253/danmaku2ass
 # Please update to the latest version before complaining.
 
+# modified by reserveword
+
 import argparse
 import calendar
 import gettext
@@ -760,7 +762,7 @@ def export(func):
 
 
 @export
-def Danmaku2ASS(input_files, input_format, output_file, stage_width, stage_height, reserve_blank=0, font_face=_('(FONT) sans-serif')[7:], font_size=25.0, text_opacity=1.0, duration_marquee=5.0, duration_still=5.0, comment_filter=None, comment_filters_file=None, is_reduce_comments=False, progress_callback=None):
+def Danmaku2ASS(input_files, input_format, output_file, stage_width, stage_height, reserve_blank=0, font_face=_('(FONT) sans-serif')[7:], font_size=25.0, text_opacity=1.0, duration_marquee=5.0, duration_still=5.0, comment_filter=None, comment_filters_file=None, is_reduce_comments=False, progress_callback=None, *args, **kwargs):
     comment_filters = [comment_filter]
     if comment_filters_file:
         with open(comment_filters_file, 'r') as f:
