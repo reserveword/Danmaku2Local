@@ -207,17 +207,35 @@ def saveconfig(cfg):
         pickle.dump(cfg, cfgfile)
 
 
+def get_id_extra(x: str):
+    idhead = 0
+    idtail = 0
+    for i in x:
+        if i.isdecimal():
+            idtail += 1
+        elif idtail == 0:
+            idhead += 1
+            idtail += 1
+        else:
+            break
+    try:
+        r = int(x[idhead:idtail])
+        head = x[:idhead]
+        tail = x[idtail:]
+        extra = head + tail
+        return r, extra
+    except ValueError:
+        return 0, x
+
+
 def matching_sorter(items, sorter='sort'):
     if sorter == 'sort':
         return [ib + ie for (ib, ie) in sorted(items)]
     elif sorter == 'shuffle':
 
         def sortfunc(x):
-            return (
-                [y for y in x if '0123456789' not in y],
-                int('0' + ''.join(filter('0123456789'.__contains__, x))),
-                x,
-            )
+            i, e = get_id_extra(x)
+            return (e, i, x)
 
         return [ib + ie for (ib, ie) in sorted(items, key=sortfunc)]
 
@@ -292,6 +310,7 @@ def fileclassify(ls, *clas, callback=None, **kwclas):
     for file in ls:
         if os.path.isfile(file):
             base, ext = os.path.splitext(file)
+            ext = ext.lower()
             for k, v in kwclas.items():
                 if ext in v:
                     rs[k].add((base, ext))
@@ -339,18 +358,11 @@ def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
     ss_json = requests.get(url_cid.format(ss=ss)).json()
     episodes = [
         {
-            'cid': episode.get('cid', 0),
-            'ep_id': episode.get('ep_id', 0),
+            'cid': episode.get('cid'),
+            'index': episode.get('index'),
         }
         for episode in ss_json.get('result', {}).get('episodes', {})
-        if episode.get('episode_type') != -1
-        and '精彩看点' not in episode.get('index_title', '')
-        and '第' not in episode.get('index')
-        and '集' not in episode.get('index')
-        and '话' not in episode.get('index')
-        and 'OP' not in episode.get('index').upper()
-        and 'ED' not in episode.get('index').upper()
-        and 'PV' not in episode.get('index').upper()
+        if episode.get('episode_type') != -1 and episode.get('index').isdigit()
     ]
     # print list
     [
@@ -366,7 +378,7 @@ def get_ss(ss) -> List[Tuple[int, Dict[str, Any]]]:
 
 @prefix('cid', on=False)
 def get_cid(cid, name=None, mode='xb') -> Tuple[str, str]:
-    print('cid', cid)
+    print(f'cid: {cid}, name: {name}')
     if name == None:
         name = cid + '.xml'
     elif not name.endswith('.xml'):
@@ -427,7 +439,7 @@ def analysis_pattern_lcs(names, shuffle=False):
     # 将('<something>0', '<others>')也计入('<something>', '<others>')的数量
     # 计算方法为：只要A是B的子序列，就把B的数量计入A的数量
     # 结果以 出现次数*总字数*总字数/分段数 排序，取最高值
-    pattern = None
+    pattern = (names[0],)
     patternval = 0
     for k, v in c.items():
         for k2, v2 in c.items():
@@ -457,6 +469,7 @@ def analysis_pattern_lcs(names, shuffle=False):
     # pattern = c.most_common(1)[0][0]
     # 在最长公共子序列中断的地方查看，取数字最多的地方为集数字段
     # 如果最长公共子序列的最后不是原字符串的最后（即序列后还有一个字段），pattern结尾会有一个空字符串
+    print(pattern)
     slot = [[0, []] for _ in pattern]
     for i in names:
         head = 0
@@ -466,13 +479,8 @@ def analysis_pattern_lcs(names, shuffle=False):
             except ValueError:
                 break
             valstr = i[head:newhead]
-            digits = ''.join(filter('0123456789'.__contains__, valstr))
-            others = tuple(filter(lambda y: y not in '0123456789', valstr))
-            try:
-                valint = int(digits)
-            except:
-                valint = 0
-            slot[j][0] += len(digits)
+            valint, others = get_id_extra(valstr)
+            slot[j][0] += valint
             slot[j][1].append((valint, others, i))
             head = newhead + len(k)
     # 将视频按照集数字段映射，弹幕就按照这个命名
@@ -603,7 +611,10 @@ def get_any_cid(key, maxlen=None, mode='xb', *args, **kwargs):
     if state == 'cid':
         if maxlen:
             key = key[:maxlen]
-        key = [(get_cid(cid, mode=mode), episode) for cid, episode in key]
+        key = [
+            (get_cid(cid, name=f'{episode["index"]:>03}_{cid}', mode=mode), episode)
+            for cid, episode in key
+        ]
         return key
 
 
@@ -613,7 +624,7 @@ def get_danmaku_joined(
     *args,
     joiner: Iterable[Tuple[List[bytes], str]] = None,
     shift=lambda x: 0,
-    **kwargs
+    **kwargs,
 ):
     try:
         names = list(names)
@@ -828,7 +839,9 @@ if __name__ == '__main__':
             )
             danmaku_pool.push(base + ext for (base, ext), episode in dmks)
         else:
-            danmaku_pool.push(danmakus)
+            danmaku_pool.push(base + ext for (base, ext) in sorted(danmakus))
+    for i, j in enumerate(names_by_episode):
+        print(danmaku_pool[i], j)
     get_danmaku_joined(danmaku_pool, (name + tag for name in names_by_episode), **cfg)
     if os.isatty(0):
         input('完成，按任意键关闭')
