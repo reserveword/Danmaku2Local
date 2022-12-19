@@ -365,10 +365,27 @@ def danmaku2ass(*args, joined_ass=None, shift=0, **kwargs):
         else:
             danmaku_ass_path, kwargs['output_file'] = kwargs['output_file'], danmaku_ass
         encoding = kwargs.pop('join_encoding', 'utf-8')
-        if len(args) < 4 and 'stage_width' not in kwargs:
-            kwargs['stage_width'] = joined_ass.play_res_x
-        if len(args) < 5 and 'stage_height' not in kwargs:
-            kwargs['stage_height'] = joined_ass.play_res_y
+        try:
+            if len(args) >= 5:
+                rate = args[4] / joined_ass.play_res_y
+            elif 'stage_height' in kwargs:
+                rate = kwargs['stage_height'] / joined_ass.play_res_y
+            elif len(args) >= 4:
+                rate = args[3] / joined_ass.play_res_x
+            elif 'stage_width' in kwargs:
+                rate = kwargs['stage_width'] / joined_ass.play_res_x
+            else:
+                rate = 1
+            if len(args) >= 8:
+                args[7] /= rate
+            elif 'font_size' in kwargs:
+                kwargs['font_size'] /= rate
+            if len(args) >= 10:
+                args[9] *= rate
+            elif 'duration_marquee' in kwargs:
+                kwargs['duration_marquee'] *= rate
+        except:
+            print('adjust danmaku size and speed failed')
         Danmaku2ASS(*args, **kwargs)
         danmaku_ass.seek(0)
         danmaku_ass = ass.parse_file(danmaku_ass)
