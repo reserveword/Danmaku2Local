@@ -386,6 +386,14 @@ def danmaku2ass(*args, joined_ass=None, shift=0, **kwargs):
                 kwargs['duration_marquee'] *= rate
         except:
             print('adjust danmaku size and speed failed')
+        if len(args) >= 4:
+            args[3] = joined_ass.play_res_x
+        else:
+            kwargs['stage_width'] = joined_ass.play_res_x
+        if len(args) >= 5:
+            args[4] = joined_ass.play_res_y
+        else:
+            kwargs['stage_height'] = joined_ass.play_res_y
         Danmaku2ASS(*args, **kwargs)
         danmaku_ass.seek(0)
         danmaku_ass = ass.parse_file(danmaku_ass)
