@@ -233,13 +233,16 @@ def get_id_extra(x: str) -> Tuple[int, str]:
     except ValueError:
         return 0, x
 
+
 @functools.total_ordering
 class reversedstr(str):
     '''string, but order is reversed'''
+
     def __lt__(self, __x: str) -> bool:
         return not super().__lt__(__x)
 
-def sort_default(item: str) -> tuple:
+
+def sort_default(item: str, fullname: str = '') -> tuple:
     builder = []
     head = 0
     state = str
@@ -259,19 +262,52 @@ def sort_default(item: str) -> tuple:
         builder.append(item[head:])
     else:
         builder.append(int(item[head:]))
-    return *builder, item
+    return *builder, item, fullname
 
-def sort_plain(item: str) -> tuple:
-    return (item,)
-def sort_front(item: str) -> tuple:
+
+def sort_plain(item: str, fullname: str = '') -> tuple:
+    return item, fullname
+
+
+def sort_front(item: str, fullname: str = '') -> tuple:
     i, e = get_id_extra(item)
-    return reversedstr(e), i, item
-def sort_middle(item: str) -> tuple:
+    return reversedstr(e), i, item, fullname
+
+
+def sort_middle(item: str, fullname: str = '') -> tuple:
     i, e = get_id_extra(item)
-    return i, e, item
-def sort_end(item: str) -> tuple:
+    return i, e, item, fullname
+
+
+def sort_end(item: str, fullname: str = '') -> tuple:
     i, e = get_id_extra(item)
-    return e, i, item
+    return e, i, item, fullname
+
+
+def sort_filename(item: str, fullname: str = '') -> tuple:
+    builder = []
+    head = 0
+    state = str
+    if fullname == '':
+        fullname = item
+    for i, c in enumerate(fullname):
+        if state is str:
+            if c in '0123456789':
+                # 让这个位置不是数字的字符串能够正常排序，如果同一位置的字符比0大那么就比所有数字大，比0小就比所有数字小
+                builder.append(fullname[head:i] + '0')
+                head = i
+                state = int
+        else:
+            if c not in '0123456789':
+                builder.append(int(fullname[head:i]))
+                head = i
+                state = str
+    if state is str:
+        builder.append(fullname[head:])
+    else:
+        builder.append(int(fullname[head:]))
+    return *builder, item, fullname
+
 
 sorters = {
     'default': sort_default,
@@ -279,10 +315,12 @@ sorters = {
     'front': sort_front,
     'middle': sort_middle,
     'end': sort_end,
+    'filename': sort_filename,
 }
 
+
 def matching_sorter(items, sorter='default'):
-        return sorted(items, key=sorters[sorter])
+    return sorted(items, key=sorters[sorter])
 
 
 def tostr(x):
@@ -327,13 +365,9 @@ def danmaku2ass(*args, joined_ass=None, shift=0, **kwargs):
         else:
             danmaku_ass_path, kwargs['output_file'] = kwargs['output_file'], danmaku_ass
         encoding = kwargs.pop('join_encoding', 'utf-8')
-        if len(args) >= 4:
-            args[3] = joined_ass.play_res_x
-        else:
+        if len(args) < 4 and 'stage_width' not in kwargs:
             kwargs['stage_width'] = joined_ass.play_res_x
-        if len(args) >= 5:
-            args[4] = joined_ass.play_res_y
-        else:
+        if len(args) < 5 and 'stage_height' not in kwargs:
             kwargs['stage_height'] = joined_ass.play_res_y
         Danmaku2ASS(*args, **kwargs)
         danmaku_ass.seek(0)
@@ -543,7 +577,8 @@ def analysis_pattern_lcs(names, sortmode='default'):
     # 集数字段排序规则
     sorter = sorters[sortmode]
     # 将视频按照集数字段映射，弹幕就按照这个命名
-    names_by_episode = [name for _, _, name in sorted(orderbyindex, key=lambda x: sorter(x[1]))]
+    sorted_episode = sorted(orderbyindex, key=lambda x: sorter(x[1], x[2]))
+    names_by_episode = [name for _, _, name in sorted_episode]
     print('各集名称：')
     print('\n'.join(names_by_episode))
     return names_by_episode
@@ -747,10 +782,10 @@ if __name__ == '__main__':
                         help='重置字幕默认样式（同时以新设置同步弹幕）')
     parser.add_argument('-j', '--join', '--join-subtitle', metavar='glob',
                         help='从能匹配glob的文件读取字幕字幕并合并进弹幕中（需要ffmpeg，支持视频软内嵌字幕）')
-    parser.add_argument('--sort', choices=['default', 'plain', 'front', 'middle', 'end'],
-                        help='字幕文件与视频匹配方法（default=默认排序, plain=字典序, front=带前后缀的集数在最前面, middle=对应集中间, end=最后面）')
-    parser.add_argument('--sort-sub', choices=['default', 'plain', 'front', 'middle', 'end'],
-                        help='字幕文件与视频匹配方法（default=默认排序, plain=字典序, front=带前后缀的集数在最前面, middle=对应集中间, end=最后面）')
+    parser.add_argument('--sort', choices=['default', 'plain', 'front', 'middle', 'end', 'filename'],
+                        help='字幕文件与视频匹配方法（default=默认排序, plain=字典序, front=带前后缀的集数在最前面, middle=对应集中间, end=最后面, filename=字典序，但是连续的数字按整数排序）')
+    parser.add_argument('--sort-sub', choices=['default', 'plain', 'front', 'middle', 'end', 'filename'],
+                        help='字幕文件与视频匹配方法（default=默认排序, plain=字典序, front=带前后缀的集数在最前面, middle=对应集中间, end=最后面）, filename=字典序，但是连续的数字按整数排序')
     parser.add_argument('--join-encoding', default='utf-8',
                         help='字幕文件编码，默认utf-8')
     parser.add_argument('-m', '--mapping',
@@ -878,10 +913,11 @@ if __name__ == '__main__':
         if args.sort_sub is None:
             args.sort_sub = cfg['sort']
         pool = matching_sorter(glob(args.join), sorter=args.sort_sub)
+        print('字幕池：', *pool, sep='\n')
         cfg['joiner'] = ((ffmpeg_get_subtitle(item), item) for item in pool)
     danmaku_pool = Pairing(args.mapping)
     videos_base = [v for v, _ in videos]
-    names_by_episode = analysis_pattern_lcs(videos_base)
+    names_by_episode = analysis_pattern_lcs(videos_base, sortmode=cfg['sort'])
     for remote in args.remote:
         cfg.setdefault('episode_bias', '')
         if remote != '':
