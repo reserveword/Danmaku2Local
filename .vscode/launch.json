@@ -5,12 +5,42 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: 当前文件",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Python: d2l",
+            "type": "python",
+            "request": "launch",
+            "module": "d2l",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--replay-global",
+                "-v",
+            ]
+        },
+        {
+            "name": "Python: danmaku2ass",
+            "type": "python",
+            "request": "launch",
+            "program": "danmaku2ass.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": []
+        },
+        {
             "name": "Python: bilidown",
             "type": "python",
             "request": "launch",
             "program": "bilidown.py",
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": false,
+            "args": []
         }
     ]
 }
