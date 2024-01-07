@@ -2,12 +2,13 @@
 
 from collections import defaultdict
 from typing import Collection, Iterable, Optional, Protocol, TypeVar
+
 from mixsub.schema.models import MatchedVideo, Matcher
 from mixsub.subtitle import LocalVideoSubtitle, Subtitle
 from mixsub.videos import Video
 
 class IndexedMatcher(Matcher):
-    def __call__(self, videos, subtitles, mixes):
+    def match(self, videos, subtitles, mixes):
         videos = [MatchedVideo(video, index=i) for i, video in enumerate(sort(list(videos)))]
         subtitles = list(subtitles)
         mixes = list(mixes)

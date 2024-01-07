@@ -9,6 +9,7 @@ from mixsub import storage
 from mixsub.matcher import tagged_name
 from mixsub.matcher.indexed import IndexedMatcher
 from mixsub.sources import AbbrMixSourceSeries
+from mixsub.sources.danmaku import DanmakuRenderer
 from mixsub.subtitle import LocalSubtitleSeries, LocalVideoSubtitleSeries, ass_out
 from mixsub.util import RegexFilter, logger
 from mixsub.videos import LocalVideoSeries
@@ -206,7 +207,7 @@ def main():
     subtitles = subtitle_series.subtitles() + video_subtitle_series.subtitles()
     danmaku_series = AbbrMixSourceSeries(args.remote)
     danmakus = danmaku_series.expand()
-    specs = IndexedMatcher()(videos, subtitles, danmakus)
+    specs = IndexedMatcher().match(videos, subtitles, danmakus)
     for spec in specs:
         outname = tagged_name(spec)
         if spec.subtitle is None:
@@ -218,7 +219,8 @@ def main():
             logger.error('%r has no mix source', spec)
             break
         mixes = spec.mixes.sources()
+        doc_mixed = DanmakuRenderer().render(mixes, base=doc)
         logger.info(outname)
-        ass_out(outname, mixes, base=doc)
+        ass_out(outname, doc_mixed)
 
 main()

@@ -4,11 +4,12 @@
 from dataclasses import dataclass
 import os
 from typing import Iterable, List, Optional, TextIO
+
 import xml.dom.minidom
 import ass
 import requests
-from mixsub.schema.models import MixSourceSeries
 
+from mixsub.schema.models import MixSourceSeries
 from mixsub.sources.danmaku import string_render_length, Danmaku, DanmakuList, DanmakuType, parsecomments
 from mixsub.storage import fileout
 from mixsub.util import logger, prefix

@@ -3,8 +3,8 @@
 
 import re
 from typing import Callable, Dict
-from mixsub.schema.models import MixSourceSeries
 
+from mixsub.schema.models import MixSourceSeries
 from mixsub.sources.danmaku import acfun, bili
 
 

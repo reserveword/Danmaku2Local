@@ -1,8 +1,10 @@
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
-from typing import Collection, Iterable, Optional, TypeAlias
+from typing import Collection, Generic, Iterable, Optional, TypeAlias, TypeVar
 
 import ass
+
+_T = TypeVar('_T')
 
 # mixsource part
 
@@ -18,7 +20,7 @@ class MixSourceSeries(metaclass=ABCMeta):
         """展开数据源列表"""
 
 
-class MixSourceSet(metaclass=ABCMeta):
+class MixSourceSet(Generic[_T], metaclass=ABCMeta):
     """混入单个字幕的数据源"""
 
     tag: str
@@ -32,8 +34,14 @@ class MixSourceSet(metaclass=ABCMeta):
         """数据源在系列中的序号"""
 
     @abstractmethod
-    def sources(self) -> Collection[ass.line._Line]:
+    def sources(self) -> Collection[_T]:
         """数据源内容"""
+
+
+class Renderer(Generic[_T], metaclass=ABCMeta):
+    @abstractmethod
+    def render(self, mixes: Iterable[_T], base: Optional[ass.Document]=None) -> ass.Document:
+        """将数据源渲染进字幕文件"""
 
 
 # subtitle part
@@ -99,7 +107,7 @@ class MatchedVideo(metaclass=ABCMeta):
 
 class Matcher(metaclass=ABCMeta):
     @abstractmethod
-    def __call__(
+    def match(
         self,
         videos: Iterable[Video],
         subtitles: Iterable[Subtitle],

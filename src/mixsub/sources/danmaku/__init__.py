@@ -5,14 +5,16 @@ from enum import Enum
 import math
 import os
 import random
-from typing import Callable, Iterable, List, Optional, TextIO
+from typing import Callable, Iterable, List, Optional, TextIO, TypeVar
 
 import ass
 from ass.data import Color, _Field
-from mixsub.schema.models import MixSourceSet
 
+from mixsub.schema.models import MixSourceSet, Renderer, _AssEventType
 from mixsub.storage import LocalStorage, filein
 from mixsub.util import MyMetaClass, NeedResize, logger
+
+_T = TypeVar('_T')
 
 @dataclass
 class DanmakuList(MixSourceSet):
@@ -224,3 +226,23 @@ def find_alternative_row(rows: list[list[Optional[Danmaku]]], c: Danmaku, height
 def parsecomments(src: Iterable[Danmaku], **kwargs) -> Iterable[ass.line._Line]:
     kwargs.update(LocalStorage()['style'])
     return render_danmakus(src, **kwargs)
+
+class DanmakuRenderer(Renderer[_T]):
+    def render(self, mixes: Iterable[_T], base: Optional[ass.Document]=None) -> ass.Document:
+        if base is None:
+            base = ass.Document()
+            base.play_res_x = 1920
+            base.play_res_y = 1080
+        for line in mixes:
+            if isinstance(line, NeedResize):
+                try:
+                    width, height = base.play_res_x, base.play_res_y
+                except:
+                    width, height = 1920, 1080
+                line.resize(width, height)
+            if isinstance(line, _AssEventType):
+                base.events.append(line)
+            elif isinstance(line, ass.Style):
+                base.styles.append(line)
+        return base
+

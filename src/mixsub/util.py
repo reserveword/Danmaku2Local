@@ -10,6 +10,7 @@ import os
 import re
 import sys
 from typing import _ProtocolMeta, Generic, Iterable, Iterator, Mapping, Protocol, Self, Sequence, TypeVar, runtime_checkable
+
 from ass.data import _WithFieldMeta
 
 

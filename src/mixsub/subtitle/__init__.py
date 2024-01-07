@@ -84,24 +84,6 @@ class LocalVideoSubtitle(LocalFile, Subtitle):
 
 
 
-def ass_out(path: str, mix: Collection[ass.line._Line], base: Optional[ass.Document]=None):
-    if base is None:
-        base = ass.Document()
-        base.play_res_x = 1920
-        base.play_res_y = 1080
+def ass_out(path: str, doc: ass.Document):
     with fileout(os.extsep.join((path, 'ass')), 'w') as f:
-        assjoin(base, mix).dump_file(f)
-
-def assjoin(doc: ass.Document, mix: Collection[ass.line._Line]) -> ass.Document:
-    for line in mix:
-        if isinstance(line, NeedResize):
-            try:
-                width, height = doc.play_res_x, doc.play_res_y
-            except:
-                width, height = 1920, 1080
-            line.resize(width, height)
-        if isinstance(line, _AssEventType):
-            doc.events.append(line)
-        elif isinstance(line, ass.Style):
-            doc.styles.append(line)
-    return doc
+        doc.dump_file(f)
