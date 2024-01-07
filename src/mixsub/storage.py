@@ -66,7 +66,7 @@ class GlobalStorage(ConfigStorage):
         'tag': 'danmaku',
         'style': {
             'density': 0.85,
-            'vertical_percent': 1.0,
+            'covered_rate': 1.0,
             'rows': 36,
             'fontface': 'SimHei',
             'fontsize': 50.0,

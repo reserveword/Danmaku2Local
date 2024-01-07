@@ -219,7 +219,7 @@ def main():
             logger.error('%r has no mix source', spec)
             break
         mixes = spec.mixes.sources()
-        doc_mixed = DanmakuRenderer().render(mixes, base=doc)
+        doc_mixed = DanmakuRenderer().render(mixes, doc=doc)
         logger.info(outname)
         ass_out(outname, doc_mixed)
 

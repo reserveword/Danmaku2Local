@@ -40,7 +40,7 @@ class MixSourceSet(Generic[_T], metaclass=ABCMeta):
 
 class Renderer(Generic[_T], metaclass=ABCMeta):
     @abstractmethod
-    def render(self, mixes: Iterable[_T], base: Optional[ass.Document]=None) -> ass.Document:
+    def render(self, mixes: Iterable[_T], doc: Optional[ass.Document]=None) -> ass.Document:
         """将数据源渲染进字幕文件"""
 
 
