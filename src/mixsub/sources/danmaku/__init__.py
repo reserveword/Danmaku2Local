@@ -105,17 +105,14 @@ def string_render_length(s):
     return max(map(len, s.split('\n')))  # May not be accurate
 
 
-def occupy_row(rows: dict[DanmakuType, list[float]], c: Danmaku, duration_marquee, duration_still):
+def occupy_row(rows: dict[DanmakuType, list[float]], c: Danmaku, occupy: float):
     row = 0
     for row, occupied in enumerate(rows[c.pos]):
         if occupied < c.timeline:
             break
     else:
         return -1
-    if c.pos in (DanmakuType.BOTTOM, DanmakuType.TOP):
-        rows[c.pos][row] = c.timeline + duration_still
-    else:
-        rows[c.pos][row] = c.timeline + duration_marquee # * c.width * 480/848/36
+    rows[c.pos][row] = c.timeline + occupy
     return row
 
 
@@ -132,31 +129,27 @@ def ass_escape(s):
     return '\\N'.join((replace_leading_space(i) or ' ' for i in str(s).replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}').split('\n')))
 
 
-def write_danmaku(c: Danmaku, row, width, height, scale, density, duration_marquee, duration_still, style_name: str):
-    dialogue = ass.Dialogue(Layer=2, Start=timedelta(seconds=c.timeline), Style=style_name)
+def write_danmaku(c: Danmaku, row, width, height, scale, density, slot: float, style_name: str):
     text = ass_escape(c.comment)
     styles = []
+    move_end = height * scale / density * (row + (1-density)/2)
+    move_start = height * scale * -c.width
     if c.pos == DanmakuType.TOP:
-        styles.append(f'\\an8\\pos({width / 2}d, {height * scale / density * (row + (1-density)/2)}d)')
-        duration = duration_still
+        styles.append(f'\\an8\\pos({width / 2}d, {move_end}d)')
     elif c.pos == DanmakuType.BOTTOM:
-        styles.append(f'\\an2\\pos({width / 2}d, {height * scale / density * (row + (1-density)/2)}d)')
-        duration = duration_still
+        styles.append(f'\\an2\\pos({width / 2}d, {move_end}d)')
     elif c.pos == DanmakuType.FLOW_BACKWARD:
-        styles.append(f'\\move({height * scale * -c.width}d, {height * scale / density * (row + (1-density)/2)}d, {width}d, {height * scale / density * (row + (1-density)/2)}d)')
-        duration = duration_marquee
+        styles.append(f'\\move({move_start}d, {move_end}d, {width}d, {move_end}d)')
     else:
-        styles.append(f'\\move({width}d, {height * scale / density * (row + (1-density)/2)}d, {height * scale * -c.width}d, {height * scale / density * (row + (1-density)/2)}d)')
-        duration = duration_marquee
+        styles.append(f'\\move({width}d, {move_end}d, {move_start}d, {move_end}d)')
     if abs(c.size - 1) > 1e-2:
         styles.append(f'\\fs{c.size-1:+.2f}')
     if c.color != 0xffffff:
         styles.append(f'\\c&H{c.color:06X}&')
         if c.color == 0x000000:
             styles.append('\\3c&HFFFFFF&')
-    dialogue.text = '{' + ''.join(map(str, styles)) + '}' + text
-    dialogue.end = timedelta(seconds=c.timeline + duration) # + duration * (c.width * style.resize_height * style.scale) / dialogue.resize_width )
-    return dialogue
+    text = '{' + ''.join(map(str, styles)) + '}' + text
+    return ass.Dialogue(text=text, layer=2, start=timedelta(seconds=c.timeline), end=timedelta(seconds=c.timeline + slot), style=style_name)
 
 
 def find_alternative_row(rows: list[list[Optional[Danmaku]]], c: Danmaku, height, bottom_reserved):
@@ -171,6 +164,14 @@ def find_alternative_row(rows: list[list[Optional[Danmaku]]], c: Danmaku, height
             res = row
             restimeline = commentrow.timeline
     return res
+
+
+def danmaku_slot(danmaku: Danmaku, width: int, height: int, scale: float, duration_marquee: float, duration_still: float, *_):
+    """弹幕速度固定，越长的弹幕显示时间越长"""
+    if danmaku.pos in (DanmakuType.BOTTOM, DanmakuType.TOP):
+        return duration_still, 1.0
+    fractor = scale * height * string_render_length(danmaku.comment) / width
+    return duration_marquee * (1 + fractor), fractor / (1 + fractor)
 
 
 class DanmakuRenderer(Renderer[Danmaku]):
@@ -200,9 +201,8 @@ class DanmakuRenderer(Renderer[Danmaku]):
                 logger.warning('Invalid comment pos: %r with content: %r', i.pos, i.comment)
                 continue
             else:
-                duration_marquee = self.style['duration_marquee']
-                duration_still = self.style['duration_still']
-                row = occupy_row(occupied_rows, i, duration_marquee, duration_still)
+                slot, occupy_rate = danmaku_slot(i, width, height, fontscale, self.style['duration_marquee'], self.style['duration_still'])
+                row = occupy_row(occupied_rows, i, slot * occupy_rate)
                 if row == -1:
                     logger.warning('Too many comments: %r', i)
                     # if not reduced:
@@ -211,6 +211,7 @@ class DanmakuRenderer(Renderer[Danmaku]):
                     #     yield write_danmaku(i, row, width, height, bottomReserved, fontsize, duration_marquee, duration_still, styleid)
                     continue
                 else:
-                    line = write_danmaku(i, row, width, height, fontscale, density, duration_marquee, duration_still, style.name) # type: ignore # style.name是类似属性property的机制
+                    # style.name是类似属性property的机制
+                    line = write_danmaku(i, row, width, height, fontscale, density, slot, style.name) # type: ignore
                     doc.events.append(line)
         return doc
