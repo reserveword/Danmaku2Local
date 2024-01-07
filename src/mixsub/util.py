@@ -9,9 +9,8 @@ import logging
 import os
 import re
 import sys
-from typing import _ProtocolMeta, Generic, Iterable, Iterator, Mapping, Protocol, Self, Sequence, TypeVar, runtime_checkable
+from typing import Generic, Iterable, Iterator, Mapping, Protocol, Self, Sequence, TypeVar
 
-from ass.data import _WithFieldMeta
 
 
 _T = TypeVar('_T')
@@ -269,7 +268,6 @@ def __init():
     fmt = logging.Formatter('[%(levelname)s] %(filename)s:%(lineno)d: %(message)s', None, '%')
     if not logger.hasHandlers():
         logger.addHandler(logging.StreamHandler(sys.stdout))
-    h = None
     for h in logger.handlers:
         h.setFormatter(fmt)
 __init()
@@ -347,11 +345,3 @@ class LocalFile:
     @property
     def extname(self) -> str:
         return self._extname
-
-@runtime_checkable
-class NeedResize(Protocol):
-    def resize(self, width: int, height: int) -> None:
-        ...
-
-class MyMetaClass(_WithFieldMeta, _ProtocolMeta):
-    pass

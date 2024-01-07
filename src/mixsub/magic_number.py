@@ -671,8 +671,9 @@ __magic_trie: Sequence[MutableMapping[bytes, tuple[str, str]]] = []
 __video_trie: Sequence[MutableMapping[bytes, bool]] = []
 __max_bytes: int = 0
 __max_bytes_video: int = 0
-def __init__():
-    global __max_bytes, __max_bytes_video
+def __init__() -> tuple[int, int]:
+    max_bytes: int = 0
+    max_bytes_video: int = 0
     for ext, item in magic_numbers.items():
         mime: str = item['mime'] # type: ignore
         signs: list[tuple[int, bytes]] = item['signs'] # type: ignore
@@ -680,16 +681,17 @@ def __init__():
             while len(__magic_trie) <= head + 1:
                 __magic_trie.append(Trie())
             __magic_trie[head][sign] = (ext, mime)
-            if __max_bytes < head + len(sign):
-                __max_bytes = head + len(sign)
+            if max_bytes < head + len(sign):
+                max_bytes = head + len(sign)
         if mime.startswith('video/'):
             for head, sign in signs:
                 while len(__video_trie) <= head + 1:
                     __video_trie.append(Trie())
                 __video_trie[head][sign] = True
-                if __max_bytes_video < head + len(sign):
-                    __max_bytes_video = head + len(sign)
-__init__()
+                if max_bytes_video < head + len(sign):
+                    max_bytes_video = head + len(sign)
+    return (max_bytes, max_bytes_video)
+__max_bytes, __max_bytes_video = __init__()
 def classify(file: BinaryIO) -> tuple[str, str] | None:
     header = file.read(__max_bytes)
     for t in __magic_trie:
@@ -699,7 +701,7 @@ def classify(file: BinaryIO) -> tuple[str, str] | None:
         else:
             return v
 def video(file: BinaryIO) -> bool:
-    header = file.read(__max_bytes)
+    header = file.read(__max_bytes_video)
     for t in __video_trie:
         v = t.get(header, None)
         if v is None:

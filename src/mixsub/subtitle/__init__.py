@@ -3,14 +3,14 @@ from dataclasses import dataclass
 import os
 import random
 import re
-from typing import Collection, Optional
+from typing import Optional
 
 import ass
 import ffmpeg
 
-from mixsub.schema.models import Subtitle, SubtitleSeries, _AssEventType
+from mixsub.schema.models import Subtitle, SubtitleSeries
 from mixsub.storage import filein, fileout, pathlocal
-from mixsub.util import FileType, LocalFile, NeedResize, thisdir
+from mixsub.util import FileType, LocalFile, thisdir
 
 
 @dataclass

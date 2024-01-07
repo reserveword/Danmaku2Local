@@ -6,14 +6,14 @@ from enum import Enum
 import math
 import os
 import random
-from typing import Callable, Iterable, Optional, TextIO
+from typing import Iterable, Optional, TextIO
 
 import ass
-from ass.data import Color, _Field
+from ass.data import Color
 
-from mixsub.schema.models import MixSourceSet, Renderer, _AssEventType
+from mixsub.schema.models import MixSourceSet, Renderer
 from mixsub.storage import LocalStorage, filein
-from mixsub.util import MyMetaClass, NeedResize, logger
+from mixsub.util import logger
 
 class DanmakuType(Enum):
     TOP = 0
@@ -68,22 +68,6 @@ class DanmakuList(MixSourceSet[Danmaku], metaclass=ABCMeta):
         return self._danmakus
 
 
-class StringPromise:
-    tostring: Callable[[], str]
-    def __init__(self, tostring: Callable[[], str]) -> None:
-        self.tostring = tostring
-    def __str__(self) -> str:
-        return self.tostring()
-
-def timedelta_to_ass(td: timedelta) -> str:
-    r = int(td.total_seconds())
-
-    r, secs = divmod(r, 60)
-    hours, mins = divmod(r, 60)
-
-    return f'{hours:.0f}:{mins:02.0f}:{secs:02.0f}.{td.microseconds // 10000:02}'
-
-
 def danmaku_style(
     height: int,
     opaque: int=255,
@@ -119,27 +103,6 @@ def danmaku_style(
 
 def string_render_length(s):
     return max(map(len, s.split('\n')))  # May not be accurate
-
-
-def render_danmakus(comments: Iterable[Danmaku], doc: ass.Document, style_name: str, rows, density, vertical_percent, duration_marquee, duration_still, **_) -> Iterable[ass.line._Line]:
-    # density 致密程度，弹幕和弹幕+空隙的比例
-    # vertical_percent 弹幕部分占屏幕的比例，下面部分给字幕留空
-    # rows 将弹幕部分均分为rows行
-    # 最终弹幕的高度就是 fontscale * height
-    fontscale = 1 * density / rows / vertical_percent
-    occupied_rows: dict[DanmakuType, list[float]] = {pos: [0] * rows for pos in DanmakuType}
-    for i in comments:
-        if isinstance(i.pos, DanmakuType):
-            row = occupy_row(occupied_rows, i, duration_marquee, duration_still)
-            if row != -1:
-                yield write_danmaku(i, row, doc.play_res_x, doc.play_res_y, fontscale, density, duration_marquee, duration_still, style_name)
-            # else:
-            #     if not reduced:
-            #         row = find_alternative_row(rows, i, height, bottomReserved)
-            #         MarkCommentRow(rows, i, row)
-            #         yield write_danmaku(i, row, width, height, bottomReserved, fontsize, duration_marquee, duration_still, styleid)
-        else:
-            logger.warning('Invalid comment pos: %r with content: %r', i.pos, i.comment)
 
 
 def occupy_row(rows: dict[DanmakuType, list[float]], c: Danmaku, duration_marquee, duration_still):
