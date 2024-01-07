@@ -13,6 +13,18 @@
             "justMyCode": false
         },
         {
+            "name": "Python: mixsub",
+            "type": "python",
+            "request": "launch",
+            "module": "mixsub",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--replay-global",
+                "-v",
+            ]
+        },
+        {
             "name": "Python: d2l",
             "type": "python",
             "request": "launch",

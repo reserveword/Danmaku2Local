@@ -5,18 +5,29 @@ import os
 import argparse
 import re
 
-from d2l import *
+from mixsub import storage
+from mixsub.matcher.indexed import IndexedMatcher
+from mixsub.sources import AbbrMixSourceSeries
+from mixsub.subtitle import LocalSubtitleSeries, LocalVideoSubtitleSeries
+from mixsub.util import RegexFilter, logger
+from mixsub.videos import LocalVideoSeries, ass_out
 
 gcfg = storage.GlobalStorage()
 cfg = storage.LocalStorage()
 parser = argparse.ArgumentParser()
 style = cfg['style']
-# 单字母参数：aeflprtv
+# 单字母参数：adeflprtv
 # fmt: off
-parser.add_argument('-l', '--local',
+parser.add_argument('-l', '--local', default='',
                     help='本地视频文件夹（默认为当前路径）')
-parser.add_argument('-r', '--remote', action='append', default=[],
-                    help='b站ID（av/BV/ss/ep开头均可，网址也可以），留空代表读取本地弹幕文件')
+parser.add_argument('-r', '--remote',
+                    help='b站ID（av/BV/ss/ep开头均可，网址也可以），aa/ac代表a站弹幕，留空代表读取本地弹幕文件')
+parser.add_argument('--match', action='append', default=[], type=RegexFilter,
+                    help='根据正则表达式匹配视频')
+parser.add_argument('--match-subtitle', action='append', default=[], type=RegexFilter,
+                    help='根据正则表达式匹配字幕')
+parser.add_argument('--match-danmaku', action='append', default=[], type=RegexFilter,
+                    help='根据正则表达式匹配弹幕')
 parser.add_argument('-e', '--episode', action='append', default=[],
                     help='只处理指定集数')
 # parser.add_argument('-o', '--overwrite', action='store_true',
@@ -136,7 +147,6 @@ stylenow.update(
         'duration_still': args.duration_still,
         'filters_regex': (),
         'reduced': args.reduce,
-        'progress_callback': None,
     }.items()
     if v is not None
 )
@@ -178,42 +188,22 @@ if args.no_cache:
     cfg.pop('seq-singular', None)
     cfg.pop('done', None)
 
+cfg['style']['height'] = 1080
+cfg['style']['width'] = 1920
+
+
 # 运行
-try:
-    seq, singular = cfg['seq-singular']
-    logger.info('发现自动探测结果缓存，剧集列表如下：')
-except KeyError:
-    dir = l.dir()
-    v, s1 = l.l(dir[l.FileType.VIDEO])
-    s2 = ass.ass(dir[l.FileType.SUBTITLE])
-    d1 = []
-    for c in args.remote:
-        d1.extend(r.r(c))
-    d2 = l.d(dir[l.FileType.DANMAKU])
-    v, d, s = v, d2, s1+s2
-    del s1,s2,d2
-    # cfg['vds'] = (v,d,s)
-    seq, singular = tagging.match(v, d, s)
-    cfg['seq-singular'] = seq, singular
-    logger.info('自动探测完成，剧集列表如下：')
-for i, (vv, dd, ss) in enumerate(seq):
-    logger.info(f'第{i+1}集：{vv.val}；{dd.val}；{ss.val}')
-for vv, dd, ss in singular:
-    logger.info(f'第{vv.flavor}集：{vv.val}；{dd.val}；{ss.val}')
-episodeseq = {int(e)-1 if e.isdecimal() else e for e in args.episode}
-doneset = cfg.get('done', set())
-try:
-    for i, (vv, dd, ss) in enumerate(seq + singular):
-        if vv.val in doneset:
-            continue
-        if len(episodeseq) == 0 or i in episodeseq or any(map(episodeseq.__contains__, vv.flavor)):
-            name = os.path.extsep.join((os.path.splitext(vv.val)[0], cfg['tag'], 'ass'))
-            with storage.fileout(name) as f:
-                ssdoc = ass.toass(ss)
-                width, height = ssdoc.play_res_x, ssdoc.play_res_y
-                dddoc = ass.toass(dd, width=width, height=height)
-                ass.assjoindanmaku(ssdoc, dddoc).dump_file(f)
-        doneset.add(vv.val)
-finally:
-    cfg['done'] = doneset
-    cfg.dump()
+video_series = LocalVideoSeries()
+videos = video_series.videos()
+subtitle_series = LocalSubtitleSeries()
+video_subtitle_series = LocalVideoSubtitleSeries()
+subtitles = subtitle_series.subtitles() + video_subtitle_series.subtitles()
+danmaku_series = AbbrMixSourceSeries(args.remote)
+danmakus = danmaku_series.expand()
+specs = IndexedMatcher()(videos, subtitles, danmakus)
+for spec in specs:
+    outname = spec.basepath()
+    doc = spec.subtitle.document()
+    mixes = spec.mixes.sources()
+    print(outname)
+    ass_out(outname, doc, mixes)

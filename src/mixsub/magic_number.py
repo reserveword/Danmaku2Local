@@ -4,7 +4,7 @@
 
 from typing import BinaryIO, MutableMapping, Sequence
 
-from d2l.trie import Trie
+from mixsub.trie import Trie
 
 magic_numbers: dict[str, dict[str, list[tuple[int, bytes]]|str]] = {
     '123': {

@@ -4,12 +4,11 @@
 from io import TextIOWrapper
 import os
 import pickle
-from typing import IO, Any, BinaryIO, Iterable, Literal, Optional, Protocol, Self, TypeAlias, TypeVar, overload
+from typing import IO, Any, BinaryIO, Iterable, Literal, Protocol, Self, TypeAlias, TypeVar, overload
 
 import chardet
 
-from d2l.util import singleton
-from d2l.logging import logger
+from mixsub.util import logger, singleton
 
 _KT = TypeVar('_KT')
 _VT = TypeVar('_VT')
@@ -66,7 +65,9 @@ class GlobalStorage(ConfigStorage):
     __default = {
         'tag': 'danmaku',
         'style': {
-            'bottomReserved': 0,
+            'density': 0.85,
+            'vertical_percent': 1.0,
+            'rows': 36,
             'fontface': 'SimHei',
             'fontsize': 50.0,
             'alpha': 0.6,
@@ -74,7 +75,6 @@ class GlobalStorage(ConfigStorage):
             'duration_still': 5.0,
             'filters_regex': (),
             'reduced': False,
-            'progress_callback': None,
         }
     }
     def __init__(self, name = None) -> None:
@@ -168,7 +168,7 @@ def filein(name, mode='r', **kwargs):
             header = f.read(1000)
         guess = chardet.detect(header)['encoding']
         if isinstance(guess, str):
-            if guess == 'ascii':
+            if guess in ('ascii', 'Windows-1254'):
                 guess = 'utf-8'
             encoding = guess
     except Exception as e:
@@ -182,4 +182,7 @@ def fileout(name, mode: OpenTextMode) -> TextIOWrapper: ...
 @overload
 def fileout(name, mode: OpenBinaryMode) -> BinaryIO: ...
 def fileout(name, mode='w'):
+    d = os.path.dirname(name)
+    if d and not os.path.isdir(d):
+        os.makedirs(d)
     return filelocal(name, mode)
