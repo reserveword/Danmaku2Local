@@ -1,7 +1,7 @@
 
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 
 from mixsub.schema.models import Video, VideoSeries
@@ -11,7 +11,7 @@ from mixsub.util import LocalFile, thisdir, FileType
 @dataclass
 class LocalVideoSeries(VideoSeries):
     path: Optional[str] = None
-    _videos: Optional[List['LocalVideo']] = None
+    _videos: Optional[list['LocalVideo']] = None
 
     def videos(self):
         if not self._videos:

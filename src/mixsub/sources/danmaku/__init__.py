@@ -1,11 +1,12 @@
 
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 import math
 import os
 import random
-from typing import Callable, Iterable, List, Optional, TextIO, TypeVar
+from typing import Callable, Collection, Iterable, Optional, TextIO, TypeVar
 
 import ass
 from ass.data import Color, _Field
@@ -13,39 +14,6 @@ from ass.data import Color, _Field
 from mixsub.schema.models import MixSourceSet, Renderer, _AssEventType
 from mixsub.storage import LocalStorage, filein
 from mixsub.util import MyMetaClass, NeedResize, logger
-
-_T = TypeVar('_T')
-
-@dataclass
-class DanmakuList(MixSourceSet):
-    idx: int
-    val: dict
-    tag: str = 'danmaku'
-    src_dir: str = 'danmaku_src'
-    filepattern: str = '{src_dir}/{name}.{tag}.xml'
-    _danmakus: Optional[List['Danmaku']] = None
-    _filename: Optional[str] = None
-    def code(self) -> str:
-        raise NotImplementedError()
-    def filename(self):
-        if self._filename is None:
-            self._filename = self.filepattern.format(src_dir=self.src_dir, name=self.code(), tag=self.tag)
-        return self._filename
-
-    def download(self) -> str:
-        raise NotImplementedError()
-    def process(self, file: TextIO) -> List['Danmaku']:
-        raise NotImplementedError()
-    def danmakus(self):
-        if not self._danmakus:
-            filename = self.download()
-            if os.path.exists(filename):
-                with filein(filename, errors='replace') as f:
-                    self._danmakus = list(sorted(self.process(f)))
-            else:
-                logger.warning('弹幕 %s 下载失败，%s 保存失败', self.code(), filename)
-                self._danmakus = []
-        return self._danmakus
 
 class DanmakuType(Enum):
     TOP = 0
@@ -74,6 +42,38 @@ class DanmakuLine(ass.Dialogue, NeedResize, metaclass=MyMetaClass):
     def resize(self, width: int, height: int):
         self.resize_width = width
         self.resize_height = height
+
+
+@dataclass
+class DanmakuList(MixSourceSet[Danmaku], metaclass=ABCMeta):
+    idx: int
+    val: dict
+    tag: str = 'danmaku'
+    src_dir: str = 'danmaku_src'
+    filepattern: str = '{src_dir}/{name}.{tag}.xml'
+    _danmakus: Optional[list['Danmaku']] = None
+    _filename: Optional[str] = None
+    def filename(self):
+        if self._filename is None:
+            self._filename = self.filepattern.format(src_dir=self.src_dir, name=self.code(), tag=self.tag)
+        return self._filename
+
+    @abstractmethod
+    def download(self) -> str:
+        """下载内容，返回文件绝对路径"""
+    @abstractmethod
+    def process(self, file: TextIO) -> list[Danmaku]:
+        """解析下载结果"""
+    def sources(self):
+        if not self._danmakus:
+            filename = self.download()
+            if os.path.exists(filename):
+                with filein(filename, errors='replace') as f:
+                    self._danmakus = list(sorted(self.process(f)))
+            else:
+                logger.warning('弹幕 %s 下载失败，%s 保存失败', self.code(), filename)
+                self._danmakus = []
+        return self._danmakus
 
 
 class StringPromise:
@@ -223,26 +223,25 @@ def find_alternative_row(rows: list[list[Optional[Danmaku]]], c: Danmaku, height
     return res
 
 
-def parsecomments(src: Iterable[Danmaku], **kwargs) -> Iterable[ass.line._Line]:
-    kwargs.update(LocalStorage()['style'])
-    return render_danmakus(src, **kwargs)
-
-class DanmakuRenderer(Renderer[_T]):
-    def render(self, mixes: Iterable[_T], base: Optional[ass.Document]=None) -> ass.Document:
+class DanmakuRenderer(Renderer[Danmaku]):
+    def __init__(self, **kwargs):
+        self.style = LocalStorage()['style']
+        self.style.update(kwargs)
+    def render(self, mixes: Iterable[Danmaku], base: Optional[ass.Document]=None) -> ass.Document:
         if base is None:
             base = ass.Document()
             base.play_res_x = 1920
             base.play_res_y = 1080
-        for line in mixes:
+        try:
+            width, height = base.play_res_x, base.play_res_y
+        except:
+            width, height = 1920, 1080
+        mix_lines = render_danmakus(mixes, **self.style)
+        for line in mix_lines:
             if isinstance(line, NeedResize):
-                try:
-                    width, height = base.play_res_x, base.play_res_y
-                except:
-                    width, height = 1920, 1080
                 line.resize(width, height)
             if isinstance(line, _AssEventType):
                 base.events.append(line)
             elif isinstance(line, ass.Style):
                 base.styles.append(line)
         return base
-

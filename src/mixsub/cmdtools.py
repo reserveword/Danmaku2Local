@@ -2,10 +2,10 @@
 # -*- encoding:utf-8 -*-
 
 from mixsub.videos import LocalVideoSeries
-from mixsub.sources import AbbrMixSourceSeries
+from mixsub.sources import AbbrDanmakuSeries
 
 
 cmd = {
-    'r': AbbrMixSourceSeries,
+    'r': AbbrDanmakuSeries,
     'l': LocalVideoSeries,
 }

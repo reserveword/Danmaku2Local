@@ -4,13 +4,12 @@ import json
 import os
 import re
 import time
-from typing import Iterable, List, Optional, TextIO
+from typing import Iterable, TextIO
 
-import ass
 import requests
 
 from mixsub.schema.models import MixSourceSeries
-from mixsub.sources.danmaku import string_render_length, Danmaku, DanmakuList, DanmakuType, parsecomments
+from mixsub.sources.danmaku import string_render_length, Danmaku, DanmakuList, DanmakuType
 from mixsub.storage import fileout
 from mixsub.util import logger, prefix
 
@@ -44,7 +43,6 @@ class AcfunDanmakuSeason(MixSourceSeries):
 class AcfunDanmakuEpisode(DanmakuList):
     # AcfunXmlMeta(cid=e['videoId'], bias=i, index=e['episodeName'], title=e['title'], full=e)
     filepattern: str = '{src_dir}/vid{name}.{tag}.xml'
-    _sources: Optional[List[ass.line._Line]] = None
 
     def code(self):
         return self.val['videoId']
@@ -57,21 +55,15 @@ class AcfunDanmakuEpisode(DanmakuList):
         vid(self.code(), filename)
         return filename
 
-    def process(self, file: TextIO) -> List[Danmaku]:
+    def process(self, file: TextIO) -> list[Danmaku]:
         return list(read_comments_acfun(file))
-
-    def sources(self):
-        if self._sources is None:
-            self._sources = list(parsecomments(self.danmakus()))
-        return self._sources
-
 
 
 @dataclass
-class AcfunDanmakuVideo: # (MixSourceSeries):
+class AcfunDanmakuVideo(MixSourceSeries):
     ac: int
 
-    def name(self):
+    def code(self):
         return 'ac' + str(self.ac)
 
     def expand(self):
@@ -90,7 +82,6 @@ class AcfunDanmakuVideo: # (MixSourceSeries):
 class AcfunDanmakuPart(DanmakuList):
     # AcfunXmlMeta(cid=int(e['id']), bias=i, index=e['fileName'], title=e['title'], full=e)
     filepattern: str = '{src_dir}/vid{name}.{tag}.xml'
-    _sources: Optional[List[ass.line._Line]] = None
 
     def code(self):
         return self.val['id']
@@ -103,14 +94,8 @@ class AcfunDanmakuPart(DanmakuList):
         vid(self.code(), filename)
         return filename
 
-    def process(self, file: TextIO) -> List[Danmaku]:
+    def process(self, file: TextIO) -> list[Danmaku]:
         return list(read_comments_acfun(file))
-
-    def sources(self):
-        if self._sources is None:
-            self._sources = list(parsecomments(self.danmakus()))
-        return self._sources
-
 
 
 @prefix('aa', on=True)

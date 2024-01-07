@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import os
 import random
 import re
-from typing import Collection, List, Optional
+from typing import Collection, Optional
 
 import ass
 import ffmpeg
@@ -17,7 +17,7 @@ from mixsub.util import FileType, LocalFile, NeedResize, thisdir
 class LocalSubtitleSeries(SubtitleSeries):
     """本地字幕系列"""
     path: Optional[str] = None
-    _subtitles: Optional[List['Subtitle']] = None
+    _subtitles: Optional[list['Subtitle']] = None
 
     def subtitles(self):
         if not self._subtitles:
@@ -40,7 +40,7 @@ class LocalSubtitle(LocalFile, Subtitle):
 class LocalVideoSubtitleSeries(SubtitleSeries):
     """本地视频附加的字幕系列"""
     path: Optional[str] = None
-    _subtitles: Optional[List['Subtitle']] = None
+    _subtitles: Optional[list['Subtitle']] = None
 
     def subtitles(self):
         if not self._subtitles:

@@ -9,14 +9,14 @@ _T = TypeVar('_T')
 # mixsource part
 
 
-class MixSourceSeries(metaclass=ABCMeta):
+class MixSourceSeries(Generic[_T], metaclass=ABCMeta):
     """混入字幕的数据源系列"""
     @abstractmethod
     def code(self) -> str:
         """数据源标识符"""
 
     @abstractmethod
-    def expand(self) -> Iterable['MixSourceSet']:
+    def expand(self) -> Iterable['MixSourceSet[_T]']:
         """展开数据源列表"""
 
 

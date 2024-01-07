@@ -3,14 +3,13 @@
 
 from dataclasses import dataclass
 import os
-from typing import Iterable, List, Optional, TextIO
+from typing import Iterable, TextIO
 
 import xml.dom.minidom
-import ass
 import requests
 
 from mixsub.schema.models import MixSourceSeries
-from mixsub.sources.danmaku import string_render_length, Danmaku, DanmakuList, DanmakuType, parsecomments
+from mixsub.sources.danmaku import string_render_length, Danmaku, DanmakuList, DanmakuType
 from mixsub.storage import fileout
 from mixsub.util import logger, prefix
 
@@ -28,7 +27,7 @@ session.headers['user-agent'] = 'myagent'
 
 
 @dataclass
-class BiliDanmakuSeason(MixSourceSeries):
+class BiliDanmakuSeason(MixSourceSeries[Danmaku]):
     ss: int
 
     def code(self):
@@ -44,7 +43,6 @@ class BiliDanmakuSeason(MixSourceSeries):
 class BiliDanmakuEpisode(DanmakuList):
     # BiliXmlMeta(cid=e['cid'], bias=i, index=e['index'], title=e['index_title'], full=e)
     filepattern: str = '{src_dir}/cid{name}.{tag}.xml'
-    _sources: Optional[List[ass.line._Line]] = None
 
     def code(self):
         return self.val['cid']
@@ -57,18 +55,12 @@ class BiliDanmakuEpisode(DanmakuList):
         cid(self.code(), filename)
         return filename
 
-    def process(self, file: TextIO) -> List[Danmaku]:
+    def process(self, file: TextIO) -> list[Danmaku]:
         return list(read_comments_bili(file))
-
-    def sources(self):
-        if self._sources is None:
-            self._sources = list(parsecomments(self.danmakus()))
-        return self._sources
-
 
 
 @dataclass
-class BiliDanmakuAv(MixSourceSeries):
+class BiliDanmakuAv(MixSourceSeries[Danmaku]):
     av: int
 
     def code(self):
@@ -86,7 +78,7 @@ class BiliDanmakuAv(MixSourceSeries):
 
 
 @dataclass
-class BiliDanmakuBv(MixSourceSeries):
+class BiliDanmakuBv(MixSourceSeries[Danmaku]):
     bv: str
 
     def code(self):
@@ -102,7 +94,6 @@ class BiliDanmakuBv(MixSourceSeries):
 class BiliDanmakuPart(DanmakuList):
     # BiliXmlMeta(cid=e['cid'], bias=i, index=str(e['page']), title=e['part'], full=e)
     filepattern: str = '{src_dir}/cid{name}.{tag}.xml'
-    _sources: Optional[List[ass.line._Line]] = None
 
     def code(self):
         return self.val['cid']
@@ -115,13 +106,8 @@ class BiliDanmakuPart(DanmakuList):
         cid(self.code(), filename)
         return filename
 
-    def process(self, file: TextIO) -> List[Danmaku]:
+    def process(self, file: TextIO) -> list[Danmaku]:
         return list(read_comments_bili(file))
-
-    def sources(self):
-        if self._sources is None:
-            self._sources = list(parsecomments(self.danmakus()))
-        return self._sources
 
 
 @prefix('av', on=False)
