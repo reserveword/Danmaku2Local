@@ -51,7 +51,7 @@ class ConfigStorage(dict[_KT, _VT]):
     def load(self) -> Self:
         try:
             with open(self.path, 'rb') as f:
-                    obj: dict = pickle.load(f)
+                obj: dict = pickle.load(f)
         except (pickle.UnpicklingError, FileNotFoundError) as e:
             logger.debug(e)
             return self
@@ -70,13 +70,14 @@ class GlobalStorage(ConfigStorage):
             'rows': 36,
             'fontface': 'SimHei',
             'fontsize': 50.0,
-            'alpha': 0.6,
+            'alpha': int(0.6*255),
             'duration_marquee': 5.0,
             'duration_still': 5.0,
             'filters_regex': (),
             'reduced': False,
         }
     }
+    _global: str
     def __init__(self, name = None) -> None:
         if name is not None:
             self.name = name
@@ -93,11 +94,11 @@ class GlobalStorage(ConfigStorage):
 
     def __missing__(self, __key):
         return self.__default[__key]
-    
+
     def load(self) -> Self:
         self.findglobal()
         return super().load()
-    
+
     def dump(self):
         self.findglobal()
         super().dump()
@@ -105,6 +106,7 @@ class GlobalStorage(ConfigStorage):
 @singleton
 class LocalStorage(ConfigStorage):
     name = 'danmaku2local.pickle'
+    _local: str
     def __init__(self, name = None) -> None:
         if name is not None:
             self.name = name
@@ -125,18 +127,18 @@ class LocalStorage(ConfigStorage):
 
     def __missing__(self, __key):
         return self.__global[__key]
-    
+
     def load(self) -> Self:
         self.findlocal()
         return super().load()
-    
+
     def dump(self):
         self.findlocal()
         super().dump()
 
 
-l = LocalStorage
-g = GlobalStorage
+L = LocalStorage
+G = GlobalStorage
 
 OpenTextMode: TypeAlias = Literal['r+', '+r', 'rt+', 'r+t', '+rt', 'tr+', 't+r', '+tr', 'w+', '+w', 'wt+', 'w+t', '+wt', 'tw+', 't+w', '+tw', 'a+', '+a', 'at+', 'a+t', '+at', 'ta+', 't+a', '+ta', 'x+', '+x', 'xt+', 'x+t', '+xt', 'tx+', 't+x', '+tx', 'w', 'wt', 'tw', 'a', 'at', 'ta', 'x', 'xt', 'tx', 'r', 'rt', 'tr', 'U', 'rU', 'Ur', 'rtU', 'rUt', 'Urt', 'trU', 'tUr', 'Utr']
 OpenBinaryMode: TypeAlias = Literal['rb+', 'r+b', '+rb', 'br+', 'b+r', '+br', 'wb+', 'w+b', '+wb', 'bw+', 'b+w', '+bw', 'ab+', 'a+b', '+ab', 'ba+', 'b+a', '+ba', 'xb+', 'x+b', '+xb', 'bx+', 'b+x', '+bx', 'rb', 'br', 'rbU', 'rUb', 'Urb', 'brU', 'bUr', 'Ubr', 'wb', 'bw', 'ab', 'ba', 'xb', 'bx']
@@ -152,7 +154,7 @@ def filelocal(name, mode: OpenBinaryMode, encoding='utf-8', **kwargs) -> BinaryI
 def filelocal(name, mode: str, encoding='utf-8', **kwargs) -> IO[Any]: ...
 def filelocal(name, mode, encoding: str='utf-8', **kwargs):
     if 'b' in mode:
-        return open(pathlocal(name), mode)
+        return open(pathlocal(name), mode) # pylint: disable=unspecified-encoding
     return open(pathlocal(name), mode, encoding=encoding, **kwargs)
 
 @overload
@@ -171,8 +173,8 @@ def filein(name, mode='r', **kwargs):
             if guess in ('ascii', 'Windows-1254'):
                 guess = 'utf-8'
             encoding = guess
-    except Exception as e:
-        logger.warn(e)
+    except Exception as e: # pylint: disable=broad-exception-caught
+        logger.warning(e)
     return filelocal(name, mode, encoding=encoding, **kwargs)
 
 @overload
