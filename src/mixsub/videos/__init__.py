@@ -8,21 +8,9 @@ from typing import Collection, Iterable, List, Optional
 import ass
 
 from mixsub import subtitle
+from mixsub.schema.models import Video, VideoSeries
 from mixsub.storage import fileout
 from mixsub.util import LocalFile, thisdir, FileType
-
-
-class VideoSeries(metaclass=ABCMeta):
-    @abstractmethod
-    def videos(self) -> Iterable['Video']:
-        ...
-
-
-class Video(metaclass=ABCMeta):
-    name: str
-    pathname: str
-    basename: str
-    extname: str
 
 
 @dataclass
@@ -39,8 +27,3 @@ class LocalVideoSeries(VideoSeries):
 @dataclass
 class LocalVideo(LocalFile, Video):
     pass
-
-
-def ass_out(path: str, doc: ass.Document, mix: Collection[ass.line._Line]):
-    with fileout(os.extsep.join((path, 'ass')), 'w') as f:
-        subtitle.assjoin(doc, mix).dump_file(f)

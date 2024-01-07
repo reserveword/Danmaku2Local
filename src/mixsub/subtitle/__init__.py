@@ -1,47 +1,21 @@
-from abc import ABCMeta, abstractmethod
 from collections import defaultdict
-from datetime import timedelta
+from dataclasses import dataclass
 import os
 import random
 import re
-from ass import Document, Style, line as assline
-from dataclasses import dataclass
-from typing import Collection, Generic, Iterable, List, Optional, TypeAlias, TypeVar
+from typing import Collection, List, Optional
 
 import ass
 import ffmpeg
-from mixsub.storage import filein, pathlocal
+
+from mixsub.schema.models import Subtitle, SubtitleSeries, _AssEventType
+from mixsub.storage import filein, fileout, pathlocal
 from mixsub.util import FileType, LocalFile, NeedResize, thisdir
-
-_AssEventType: TypeAlias = (
-    assline.Dialogue
-    | assline.Comment
-    | assline.Picture
-    | assline.Sound
-    | assline.Movie
-    | assline.Command
-)
-
-_T = TypeVar('_T')
-
-class SubtitleSeries(metaclass=ABCMeta):
-    @abstractmethod
-    def subtitles(self) -> Iterable['Subtitle']:
-        ...
-
-
-class Subtitle(metaclass=ABCMeta):
-    name: str
-    pathname: str
-    basename: str
-    @abstractmethod
-    def document(self) -> ass.Document:
-        ...
-
 
 
 @dataclass
 class LocalSubtitleSeries(SubtitleSeries):
+    """本地字幕系列"""
     path: Optional[str] = None
     _subtitles: Optional[List['Subtitle']] = None
 
@@ -53,9 +27,10 @@ class LocalSubtitleSeries(SubtitleSeries):
 
 @dataclass
 class LocalSubtitle(LocalFile, Subtitle):
+    """单个本地字幕文件"""
     _document: Optional[ass.Document] = None
 
-    def document(self) -> Document:
+    def document(self) -> ass.Document:
         if not self._document:
             with filein(self.path) as f:
                 self._document = ass.parse_file(f)
@@ -63,6 +38,7 @@ class LocalSubtitle(LocalFile, Subtitle):
 
 @dataclass
 class LocalVideoSubtitleSeries(SubtitleSeries):
+    """本地视频附加的字幕系列"""
     path: Optional[str] = None
     _subtitles: Optional[List['Subtitle']] = None
 
@@ -83,13 +59,14 @@ class LocalVideoSubtitleSeries(SubtitleSeries):
 
 @dataclass
 class LocalVideoSubtitle(LocalFile, Subtitle):
+    """单个本地视频附加的单个字幕"""
     meta: dict
     _document: Optional[ass.Document] = None
 
     def index(self) -> str:
         return self.meta.get('index', 's:0')
 
-    def document(self) -> Document:
+    def document(self) -> ass.Document:
         if not self._document:
             stream_idx_path = str(self.index()).replace(':', os.extsep)
             dirname, basename = os.path.split(self.path)
@@ -105,20 +82,17 @@ class LocalVideoSubtitle(LocalFile, Subtitle):
                 self._document = ass.parse_file(f)
         return self._document
 
-@dataclass
-class AssLine(Generic[_T]):
-    line: _T
-
-    def __eq__(self, __o: object) -> bool:
-        if not isinstance(__o, AssLine) or type(__o) is not type(self):
-            return False
-        return frozenset(self.line.__dict__.items()) == frozenset(__o.line.__dict__.items())
-
-    def __hash__(self) -> int:
-        return frozenset(self.line.__dict__.items()).__hash__()
 
 
-def assjoin(doc: Document, mix: Collection[ass.line._Line]) -> Document:
+def ass_out(path: str, mix: Collection[ass.line._Line], base: Optional[ass.Document]=None):
+    if base is None:
+        base = ass.Document()
+        base.play_res_x = 1920
+        base.play_res_y = 1080
+    with fileout(os.extsep.join((path, 'ass')), 'w') as f:
+        assjoin(base, mix).dump_file(f)
+
+def assjoin(doc: ass.Document, mix: Collection[ass.line._Line]) -> ass.Document:
     for line in mix:
         if isinstance(line, NeedResize):
             try:

@@ -6,11 +6,12 @@ import argparse
 import re
 
 from mixsub import storage
+from mixsub.matcher import tagged_name
 from mixsub.matcher.indexed import IndexedMatcher
 from mixsub.sources import AbbrMixSourceSeries
-from mixsub.subtitle import LocalSubtitleSeries, LocalVideoSubtitleSeries
+from mixsub.subtitle import LocalSubtitleSeries, LocalVideoSubtitleSeries, ass_out
 from mixsub.util import RegexFilter, logger
-from mixsub.videos import LocalVideoSeries, ass_out
+from mixsub.videos import LocalVideoSeries
 
 gcfg = storage.GlobalStorage()
 cfg = storage.LocalStorage()
@@ -33,7 +34,7 @@ parser.add_argument('-e', '--episode', action='append', default=[],
 # parser.add_argument('-o', '--overwrite', action='store_true',
 #                     help='覆盖本地弹幕文件')
 parser.add_argument('-t', '--tag',
-                    help='字幕文件标签，用于区分弹幕和一般字幕。默认为{tag}'.format(tag=cfg['tag']))
+                    help='字幕文件标签，用于区分弹幕和一般字幕。默认为{tag}'.format(**cfg))
 parser.add_argument('--set-config', action='store_true',
                     help='更新全局配置（只更新设置，不执行弹幕操作）')
 parser.add_argument('-v', '--verbose', action='store_true',
@@ -97,28 +98,31 @@ parser.add_argument('--reduce', action='store_true',
 # fmt: on
 args = parser.parse_args()
 # 日志等级
-if isinstance(args.level, str) and args.level.upper() in ('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'CRITICAL', 'FATAL'):
+logger_levels = ('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'CRITICAL', 'FATAL')
+if isinstance(args.level, str) and args.level.upper() in logger_levels:
     logger.setLevel(args.level.upper())
 elif args.verbose:
     logger.setLevel('DEBUG')
 # 判断仅配置不运行的情况
-no_exec = False
-if args.reset_global:
-    gcfg.clear()
-    gcfg.dump()
-    logger.info('已重置全局配置')
-    no_exec = True
-if args.reset:
-    cfg.clear()
-    cfg.dump()
-    logger.info('已重置本地配置')
-    no_exec = True
-if args.dump_local:
-    logger.critical(f'本地配置：{cfg}')
-    no_exec = True
-if no_exec:
-    exit(0)
-del no_exec
+def make_config():
+    """设置配置文件，并在只修改配置不执行主程序的情形直接退出"""
+    do_exit = False
+    if args.reset_global:
+        gcfg.clear()
+        gcfg.dump()
+        logger.info('已重置全局配置')
+        do_exit = True
+    if args.reset:
+        cfg.clear()
+        cfg.dump()
+        logger.info('已重置本地配置')
+        do_exit = True
+    if args.dump_local:
+        logger.critical('本地配置：%s', cfg)
+        do_exit = True
+    if do_exit:
+        exit(0)
+make_config()
 # 补完默认参数，判断全局配置的情况
 stylenow = dict(style)
 if args.filter:
@@ -126,7 +130,7 @@ if args.filter:
 else:
     comment_filters = []
 if args.filter_file:
-    with open(args.filter_file, 'r') as f:
+    with open(args.filter_file, 'r', encoding='utf-8') as f:
         d = f.readlines()
         comment_filters.extend([i.strip() for i in d])
 filters_regex = []
@@ -134,8 +138,8 @@ for comment_filter in comment_filters:
     try:
         if comment_filter:
             filters_regex.append(re.compile(comment_filter))
-    except:
-        raise ValueError('Invalid regular expression: %s' % comment_filter)
+    except Exception as e:
+        raise ValueError(f'Invalid regular expression: {comment_filter}') from e
 stylenow.update(
     (k, v)
     for k, v in {
@@ -152,25 +156,25 @@ stylenow.update(
 )
 if args.set_config:
     gcfg['style'] = stylenow
-    if type(args.tag) is str and len(args.tag):
+    if isinstance(args.tag, str) and len(args.tag):
         gcfg['tag'] = args.tag
     gcfg.dump()
     exit(0)
 else:
     cfg['style'] = stylenow
-    if type(args.tag) is str and len(args.tag):
+    if isinstance(args.tag, str) and len(args.tag):
         cfg['tag'] = args.tag
     cfg.dump()
 
 # 如果确定要运行，记下本次运行的参数
 if args.replay:
     args = cfg['last-run']
-    logger.info(f'running with local last run args: {args}')
+    logger.info('running with local last run args: %s', args)
 elif args.replay_global:
-    dir = gcfg['last-run-path']
+    dirname = gcfg['last-run-path']
     args = gcfg['last-run']
-    logger.info(f'running with last run args: {args}, at dir: {dir}')
-    os.chdir(dir)
+    logger.info('running with last run args: %s, at dir: %s', args, dirname)
+    os.chdir(dirname)
     if args.local:
         os.chdir(args.local)
     cfg.load()
@@ -193,17 +197,28 @@ cfg['style']['width'] = 1920
 
 
 # 运行
-video_series = LocalVideoSeries()
-videos = video_series.videos()
-subtitle_series = LocalSubtitleSeries()
-video_subtitle_series = LocalVideoSubtitleSeries()
-subtitles = subtitle_series.subtitles() + video_subtitle_series.subtitles()
-danmaku_series = AbbrMixSourceSeries(args.remote)
-danmakus = danmaku_series.expand()
-specs = IndexedMatcher()(videos, subtitles, danmakus)
-for spec in specs:
-    outname = spec.basepath()
-    doc = spec.subtitle.document()
-    mixes = spec.mixes.sources()
-    print(outname)
-    ass_out(outname, doc, mixes)
+def main():
+    """主流程"""
+    video_series = LocalVideoSeries()
+    videos = video_series.videos()
+    subtitle_series = LocalSubtitleSeries()
+    video_subtitle_series = LocalVideoSubtitleSeries()
+    subtitles = subtitle_series.subtitles() + video_subtitle_series.subtitles()
+    danmaku_series = AbbrMixSourceSeries(args.remote)
+    danmakus = danmaku_series.expand()
+    specs = IndexedMatcher()(videos, subtitles, danmakus)
+    for spec in specs:
+        outname = tagged_name(spec)
+        if spec.subtitle is None:
+            logger.warning('%r has no subtitle', spec)
+            doc = None
+        else:
+            doc = spec.subtitle.document()
+        if spec.mixes is None:
+            logger.error('%r has no mix source', spec)
+            break
+        mixes = spec.mixes.sources()
+        logger.info(outname)
+        ass_out(outname, mixes, base=doc)
+
+main()

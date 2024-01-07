@@ -9,13 +9,14 @@ from typing import Iterable, List, Optional, TextIO
 import ass
 import requests
 
-from mixsub.sources.danmaku import CalculateLength, Danmaku, DanmakuList, DanmakuType, parsecomments
+from mixsub.schema.models import MixSourceSeries
+from mixsub.sources.danmaku import string_render_length, Danmaku, DanmakuList, DanmakuType, parsecomments
 from mixsub.storage import fileout
-from mixsub.util import MixSourceSeries, logger, prefix
+from mixsub.util import logger, prefix
 
-url_aa = 'https://www.acfun.cn/bangumi/aa{aa}'
-url_ac = 'https://www.acfun.cn/v/ac{ac}'
-url_vid = 'https://www.acfun.cn/rest/pc-direct/new-danmaku/list'
+URL_AA = 'https://www.acfun.cn/bangumi/aa{aa}'
+URL_AC = 'https://www.acfun.cn/v/ac{ac}'
+URL_VID = 'https://www.acfun.cn/rest/pc-direct/new-danmaku/list'
 
 session = requests.session()
 session.headers['user-agent'] = 'myagent'
@@ -24,7 +25,7 @@ session.headers['user-agent'] = 'myagent'
 class AcfunDanmakuSeason(MixSourceSeries):
     aa: int
 
-    def name(self):
+    def code(self):
         return 'aa' + str(self.aa)
 
     def expand(self):
@@ -33,7 +34,7 @@ class AcfunDanmakuSeason(MixSourceSeries):
             aa123456789
         Credit: https://yleen.cc/archives/acfun-danmakus.html
         '''
-        response = session.get(url_aa.format(aa=self.aa))
+        response = session.get(URL_AA.format(aa=self.aa))
         match_iter = re.finditer(r'window\.bangumiList = (\{.*\});\n', response.text)
         episodes = json.loads(next(match_iter).group(1)).get('items')
         return [AcfunDanmakuEpisode(i, e) for i, e in enumerate(episodes)]
@@ -45,7 +46,7 @@ class AcfunDanmakuEpisode(DanmakuList):
     filepattern: str = '{src_dir}/vid{name}.{tag}.xml'
     _sources: Optional[List[ass.line._Line]] = None
 
-    def name(self):
+    def code(self):
         return self.val['videoId']
 
     def index(self):
@@ -53,11 +54,11 @@ class AcfunDanmakuEpisode(DanmakuList):
 
     def download(self) -> str:
         filename = self.filename()
-        vid(self.name(), filename)
+        vid(self.code(), filename)
         return filename
 
     def process(self, file: TextIO) -> List[Danmaku]:
-        return list(ReadCommentsAcfun(file))
+        return list(read_comments_acfun(file))
 
     def sources(self):
         if self._sources is None:
@@ -67,7 +68,7 @@ class AcfunDanmakuEpisode(DanmakuList):
 
 
 @dataclass
-class AcfunDanmakuVideo(MixSourceSeries):
+class AcfunDanmakuVideo: # (MixSourceSeries):
     ac: int
 
     def name(self):
@@ -79,7 +80,7 @@ class AcfunDanmakuVideo(MixSourceSeries):
             ac123456789
         Credit: https://yleen.cc/archives/acfun-danmakus.html
         '''
-        response = session.get(url_ac.format(ac=self.ac))
+        response = session.get(URL_AC.format(ac=self.ac))
         match_iter = re.finditer(r'window\.videoInfo = (\{.*\});\n', response.text)
         parts = json.loads(next(match_iter).group(1)).get('video_list')
         return [AcfunDanmakuPart(i, e) for i, e in enumerate(parts)]
@@ -91,7 +92,7 @@ class AcfunDanmakuPart(DanmakuList):
     filepattern: str = '{src_dir}/vid{name}.{tag}.xml'
     _sources: Optional[List[ass.line._Line]] = None
 
-    def name(self):
+    def code(self):
         return self.val['id']
 
     def index(self):
@@ -99,11 +100,11 @@ class AcfunDanmakuPart(DanmakuList):
 
     def download(self) -> str:
         filename = self.filename()
-        vid(self.name(), filename)
+        vid(self.code(), filename)
         return filename
 
     def process(self, file: TextIO) -> List[Danmaku]:
-        return list(ReadCommentsAcfun(file))
+        return list(read_comments_acfun(file))
 
     def sources(self):
         if self._sources is None:
@@ -162,7 +163,7 @@ def vid(vidcode: str, name: os.PathLike | str) -> None:
         raise
 
 
-def ReadCommentsAcfun(f) -> Iterable[Danmaku]:
+def read_comments_acfun(f) -> Iterable[Danmaku]:
     # {
     #     "likeCount": 0,
     #     "size": 25,
@@ -187,7 +188,7 @@ def ReadCommentsAcfun(f) -> Iterable[Danmaku]:
         try:
             size = comment['size'] / 25.0
             c = str(comment['body']).replace('\\r', '\n').replace('\r', '\n')
-            yield Danmaku(float(comment['position']) / 1000, int(comment['createTime']), i, c, style_map[comment['danmakuStyle']], int(comment['color']), size, (c.count('\n') + 1), CalculateLength(c))
+            yield Danmaku(float(comment['position']) / 1000, int(comment['createTime']), i, c, style_map[comment['danmakuStyle']], int(comment['color']), size, (c.count('\n') + 1), string_render_length(c))
         except (AssertionError, AttributeError, IndexError, TypeError, ValueError):
             logger.warning('Invalid comment: %r', comment)
             continue

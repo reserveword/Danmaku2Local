@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- encoding:utf-8 -*-
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
@@ -9,14 +9,12 @@ import logging
 import os
 import re
 import sys
-import xml.dom.minidom
-from typing import _ProtocolMeta, Collection, Generic, Iterable, Iterator, Mapping, Protocol, Self, Sequence, TextIO, TypeVar, runtime_checkable
+from typing import _ProtocolMeta, Generic, Iterable, Iterator, Mapping, Protocol, Self, Sequence, TypeVar, runtime_checkable
 from ass.data import _WithFieldMeta
 
-import ass
 
 _T = TypeVar('_T')
-_T2 = TypeVar('_T2')
+_T2 = TypeVar('_T2') # pylint: disable=C0103
 _KT = TypeVar('_KT')
 _VT = TypeVar('_VT')
 _T_contra = TypeVar("_T_contra", contravariant=True)
@@ -34,7 +32,7 @@ def singleton(clas: _T) -> _T:
     clas.__new__ = __new__
     return clas
 
-class frozendict(dict[_KT, _VT], Mapping[_KT, _VT]):
+class FrozenDict(dict[_KT, _VT], Mapping[_KT, _VT]):
     _hash_cached = None
     _has_inited = False
     def __init__(self, *args, **kwargs):
@@ -88,7 +86,7 @@ def lcseq(a: _ST,b: _ST) -> Sequence:
         l = []
         for bb in b:
             if aa == bb:
-                if not len(r) or not len(l):
+                if not r or not l:
                     score = 1
                 else:
                     score = r[-1][len(l)-1] + 1
@@ -108,24 +106,24 @@ def looping(obj: _T) -> Iterable[_T]:
 class Filter(Generic[_T]):
     @abstractmethod
     def test(self, o: _T) -> bool: ...
-    
+
     def __add__(self, o: 'Filter[_T]|int|None') -> 'Filter[_T]':
         if o is None:
             return self
         if isinstance(o, int):
             return self
         return AndFilter(self, o)
-    
+
     def __radd__(self, o: 'Filter[_T]|int|None') -> 'Filter[_T]':
         if o is None:
             return self
         if isinstance(o, int):
             return self
         return AndFilter(o, self)
-    
+
     @staticmethod
-    def test_filter(filter: 'Filter[_T2]', obj: _T2) -> bool:
-        return filter.test(obj)
+    def test_filter(filter_: 'Filter[_T2]', obj: _T2) -> bool:
+        return filter_.test(obj)
 
 
 class DummyFilter(Filter[_T]):
@@ -159,19 +157,19 @@ class RegexFilter(Filter[str]):
     def __init__(self, s: str):
         self.pattern = re.compile(s)
         super().__init__()
-    
+
     def test(self, o: str) -> bool:
         return self.pattern.search(o) is not None
 class SupportsLT(Protocol[_T_contra]):
     def __lt__(self, __other: _T_contra) -> bool: ...
 
-_T_LT = TypeVar('_T_LT', bound=SupportsLT)
+_SupportsLtT = TypeVar('_SupportsLtT', bound=SupportsLT)
 
-def union(*iterables: Iterable[_T_LT]) -> Iterable[_T_LT]:
+def union(*iterables: Iterable[_SupportsLtT]) -> Iterable[_SupportsLtT]:
     return unionsorted(*(sorted(it) for it in iterables))
 
 @dataclass
-class peekable_iterator(Generic[_T]):
+class PeekableIterator(Generic[_T]):
     head: _T
     tail: Iterator[_T]
     flag: bool = False
@@ -188,12 +186,12 @@ class peekable_iterator(Generic[_T]):
             return self.head
         return next(self.tail)
 
-def unionsorted(*lis: list[_T_LT]) -> Iterable[_T_LT]:
+def unionsorted(*lis: list[_SupportsLtT]) -> Iterable[_SupportsLtT]:
     if len(lis) > 2:
         mid = len(lis) // 2
-        l, r = peekable_iterator(unionsorted(*lis[:mid])), peekable_iterator(unionsorted(*lis[mid:]))
+        l, r = PeekableIterator(unionsorted(*lis[:mid])), PeekableIterator(unionsorted(*lis[mid:]))
     elif len(lis) == 2:
-        l, r = peekable_iterator(lis[0]), peekable_iterator(lis[1])
+        l, r = PeekableIterator(lis[0]), PeekableIterator(lis[1])
     elif len(lis) == 1:
         for c in lis[0]:
             yield c
@@ -201,8 +199,8 @@ def unionsorted(*lis: list[_T_LT]) -> Iterable[_T_LT]:
     else:
         return
     try:
-        now: peekable_iterator[_T_LT] = l
-        hold: peekable_iterator[_T_LT] = r
+        now: PeekableIterator[_SupportsLtT] = l
+        hold: PeekableIterator[_SupportsLtT] = r
         while True:
             if now.peek() < hold.peek():
                 yield now.pop()
@@ -225,6 +223,7 @@ def unionsorted(*lis: list[_T_LT]) -> Iterable[_T_LT]:
             pass
 
 def seekzero(func):
+    '''decorative for auto reset file cursor'''
     def decorated_function(file_):
         file_.seek(0)
         try:
@@ -233,44 +232,6 @@ def seekzero(func):
             file_.seek(0)
     return decorated_function
 
-
-@seekzero
-def guessFormat(f: TextIO):
-    f.seek(0)
-    tmp = f.read(1)
-    if tmp == '[':
-        return 'Acfun'
-        # It is unwise to wrap a JSON object in an array!
-        # See this: http://haacked.com/archive/2008/11/20/anatomy-of-a-subtle-json-vulnerability.aspx/
-        # Do never follow what Acfun developers did!
-    elif tmp == '{':
-        tmp = f.read(14)
-        if tmp == '"status_code":':
-            return 'Tudou'
-        elif tmp.strip().startswith('"result'):
-            return 'Tudou2'
-        elif tmp.startswith('"count":'):
-            return 'dandanplay'  # 从弹弹play上找到的格式
-        else:
-            return 'AcfunNew'
-    elif tmp == '<':
-        # xml文件要用xml的方式解析，不然没法适配各种模仿生成的文件
-        f.seek(0)
-        dom = xml.dom.minidom.parse(f)
-        try:
-            if float(dom.version) > 1:
-                return 'Bilibili2'
-            elif dom.childNodes[0].nodeName == 'p':
-                return 'Niconico'
-            elif dom.childNodes[0].nodeName == '#comment':
-                return 'Niconico'
-            elif dom.childNodes[0].nodeName == 'i':
-                return 'Bilibili'
-            else:
-                return 'MioMio' # 历史原因保留，找不到该类样本故无法进一步识别
-        except:
-            return 'Niconico'  # Himawari Douga, with the same file format as Niconico Douga
-    raise RuntimeError('detect failed')
 
 def makeprefix(src, dst: str, on=True) -> str:
     if type(src != str):
@@ -290,7 +251,7 @@ def prefix(*pfxs: str, on=True, **kwpfxs: str):
         def wrapper(*args, **kwargs):
             for i, pfx in enumerate(pfxs):
                 if pfx is not None and len(args) > i:
-                    if type(args) != list:
+                    if not isinstance(args, list):
                         args = list(args)
                     args[i] = makeprefix(args[i], pfx, on=on)
             for k, pfx in kwpfxs.items():
@@ -316,30 +277,6 @@ del __init
 
 def throw(e: Exception):
     raise e
-
-class MixSourceSeries(metaclass=ABCMeta):
-    """混入字幕的数据源系列"""
-    @abstractmethod
-    def name(self) -> str: ...
-    @abstractmethod
-    def expand(self) -> Iterable['MixSourceSet']: ...
-
-
-class MixSourceSet(metaclass=ABCMeta):
-    """混入单个字幕的数据源"""
-    @property
-    def tag(self) -> str:
-        return self._tag
-    @tag.setter
-    def tag(self, tag: str):
-        self._tag = tag
-    @abstractmethod
-    def name(self) -> str: ...
-    @abstractmethod
-    def index(self) -> int: ...
-    @abstractmethod
-    def sources(self) -> Collection[ass.line._Line]: ...
-
 
 class FileType(Enum):
     UNKNOWN = 0

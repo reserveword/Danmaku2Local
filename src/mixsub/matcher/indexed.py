@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from typing import Collection, Iterable, Optional, Protocol, TypeVar
-from mixsub.matcher import MatchedVideo, Matcher
+from mixsub.schema.models import MatchedVideo, Matcher
 from mixsub.subtitle import LocalVideoSubtitle, Subtitle
 from mixsub.videos import Video
 
@@ -26,14 +26,14 @@ class IndexedMatcher(Matcher):
             video.mixes = mix
         return videos
 
-_T_Video_Subtitle = TypeVar('_T_Video_Subtitle', Video, Subtitle)
+_VideoSubtitleT = TypeVar('_VideoSubtitleT', Video, Subtitle)
 
-def sort(items: Collection[_T_Video_Subtitle]) -> Iterable[_T_Video_Subtitle]:
+def sort(items: Collection[_VideoSubtitleT]) -> Iterable[_VideoSubtitleT]:
     bestmatch = ()
     thisoffset = -1
     while True:
         thisoffset += 1
-        resultset: dict[str, dict[int, _T_Video_Subtitle]] = defaultdict(dict)
+        resultset: dict[str, dict[int, _VideoSubtitleT]] = defaultdict(dict)
         resultrank: dict[str, dict[int, int]] = defaultdict(dict)
         end = True
         for item in items:
@@ -69,7 +69,7 @@ def sort(items: Collection[_T_Video_Subtitle]) -> Iterable[_T_Video_Subtitle]:
 CHINESE_TAGS = {'ch', 'chi', 'chn', 'chs', 'cn', 'zh', 'zhs', 'sc', 'chinese', 'zh-cn', 'zh-hans', 'hans', '中文', '汉语', '中', '文', '汉'}
 SIMPLIFIED_TAGS = {'simplified', 'zh-cn', 'zh-hans', 'sc', 'chs', 'zhs', 'hans', '简体', '简', 'gb'}
 TRADITIONAL_TAGS = {'traditional', 'tc', 'tw', 'hk', 'hant', '繁', '體', '漢', 'big5'}
-def havetag(subtitle: _T_Video_Subtitle, target: set[str]) -> bool:
+def havetag(subtitle: _VideoSubtitleT, target: set[str]) -> bool:
     name: str = subtitle.name.lower()
     for t in target:
         if t in name:
@@ -123,7 +123,7 @@ def match_max(video: Video, subtitles: Iterable[Subtitle]) -> Optional[Subtitle]
     return chosen
 
 class SubtitleLanguageTest(Protocol):
-    def __call__(self, subtitle: _T_Video_Subtitle) -> bool:
+    def __call__(self, subtitle: _VideoSubtitleT) -> bool:
         ...
 
 SimpLanguageTest: SubtitleLanguageTest = lambda subtitle: havetag(subtitle, SIMPLIFIED_TAGS)
@@ -132,7 +132,7 @@ TradLanguageTest: SubtitleLanguageTest = lambda subtitle: not havetag(subtitle, 
 
 TEST_LANGUAGE: list[SubtitleLanguageTest] = [SimpLanguageTest, ChnLanguageTest, TradLanguageTest]
 
-def language_rank(subtitle: _T_Video_Subtitle) -> int:
+def language_rank(subtitle: _VideoSubtitleT) -> int:
     result = 0
     for test in TEST_LANGUAGE:
         if test not in TEST_THRESHOLD and test(subtitle):

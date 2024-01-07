@@ -5,28 +5,29 @@ from enum import Enum
 import math
 import os
 import random
-from typing import Any, Callable, Collection, Iterable, List, Optional, TextIO
+from typing import Callable, Iterable, List, Optional, TextIO
 
 import ass
 from ass.data import Color, _Field
+from mixsub.schema.models import MixSourceSet
 
 from mixsub.storage import LocalStorage, filein
-from mixsub.util import MixSourceSet, MyMetaClass, NeedResize, logger
+from mixsub.util import MyMetaClass, NeedResize, logger
 
 @dataclass
 class DanmakuList(MixSourceSet):
     idx: int
     val: dict
-    _tag: str = 'danmaku'
+    tag: str = 'danmaku'
     src_dir: str = 'danmaku_src'
     filepattern: str = '{src_dir}/{name}.{tag}.xml'
     _danmakus: Optional[List['Danmaku']] = None
     _filename: Optional[str] = None
-    def name(self) -> str:
+    def code(self) -> str:
         raise NotImplementedError()
     def filename(self):
         if self._filename is None:
-            self._filename = self.filepattern.format(src_dir=self.src_dir, name=self.name(), tag=self.tag)
+            self._filename = self.filepattern.format(src_dir=self.src_dir, name=self.code(), tag=self.tag)
         return self._filename
 
     def download(self) -> str:
@@ -40,16 +41,9 @@ class DanmakuList(MixSourceSet):
                 with filein(filename, errors='replace') as f:
                     self._danmakus = list(sorted(self.process(f)))
             else:
-                logger.warning('弹幕 %s 下载失败，%s 保存失败', self.name(), filename)
+                logger.warning('弹幕 %s 下载失败，%s 保存失败', self.code(), filename)
                 self._danmakus = []
         return self._danmakus
-
-class MixDanmakuList(MixSourceSet):
-    """混入单个字幕的弹幕源"""
-    def name(self) -> str: ...
-    def index(self) -> int: ...
-    def sources(self) -> Collection[ass.line._Line]: ...
-    def danmakus(self) -> List['Danmaku']: ...
 
 class DanmakuType(Enum):
     TOP = 0
@@ -132,11 +126,11 @@ class DanmakuStyle(ass.Style, NeedResize, metaclass=MyMetaClass):
         self.resize_height = height
 
 
-def CalculateLength(s):
+def string_render_length(s):
     return max(map(len, s.split('\n')))  # May not be accurate
 
 
-def ProcessComments(comments: Iterable[Danmaku], rows, density, vertical_percent, fontface, alpha, duration_marquee, duration_still, **_) -> Iterable[ass.line._Line]:
+def render_danmakus(comments: Iterable[Danmaku], rows, density, vertical_percent, fontface, alpha, duration_marquee, duration_still, **_) -> Iterable[ass.line._Line]:
     # density 致密程度，弹幕和弹幕+空隙的比例
     # vertical_percent 弹幕部分占屏幕的比例，下面部分给字幕留空
     # rows 将弹幕部分均分为rows行
@@ -147,19 +141,19 @@ def ProcessComments(comments: Iterable[Danmaku], rows, density, vertical_percent
     occupied_rows: dict[DanmakuType, list[float]] = {pos: [0] * rows for pos in DanmakuType}
     for i in comments:
         if isinstance(i.pos, DanmakuType):
-            row = OccupyRow(occupied_rows, i, duration_marquee, duration_still)
+            row = occupy_row(occupied_rows, i, duration_marquee, duration_still)
             if row != -1:
-                yield WriteComment(i, row, density, duration_marquee, duration_still, style)
+                yield write_danmaku(i, row, density, duration_marquee, duration_still, style)
             # else:
             #     if not reduced:
-            #         row = FindAlternativeRow(rows, i, height, bottomReserved)
+            #         row = find_alternative_row(rows, i, height, bottomReserved)
             #         MarkCommentRow(rows, i, row)
-            #         yield WriteComment(i, row, width, height, bottomReserved, fontsize, duration_marquee, duration_still, styleid)
+            #         yield write_danmaku(i, row, width, height, bottomReserved, fontsize, duration_marquee, duration_still, styleid)
         else:
             logger.warning('Invalid comment pos: %r with content: %r', i.pos, i.comment)
 
 
-def OccupyRow(rows: dict[DanmakuType, list[float]], c: Danmaku, duration_marquee, duration_still):
+def occupy_row(rows: dict[DanmakuType, list[float]], c: Danmaku, duration_marquee, duration_still):
     row = 0
     for row, occupied in enumerate(rows[c.pos]):
         if occupied < c.timeline:
@@ -173,8 +167,8 @@ def OccupyRow(rows: dict[DanmakuType, list[float]], c: Danmaku, duration_marquee
     return row
 
 
-def ASSEscape(s):
-    def ReplaceLeadingSpace(s):
+def ass_escape(s):
+    def replace_leading_space(s):
         sstrip = s.strip(' ')
         slen = len(s)
         if slen == len(sstrip):
@@ -183,12 +177,12 @@ def ASSEscape(s):
             llen = slen - len(s.lstrip(' '))
             rlen = slen - len(s.rstrip(' '))
             return ''.join(('\u2007' * llen, sstrip, '\u2007' * rlen))
-    return '\\N'.join((ReplaceLeadingSpace(i) or ' ' for i in str(s).replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}').split('\n')))
+    return '\\N'.join((replace_leading_space(i) or ' ' for i in str(s).replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}').split('\n')))
 
 
-def WriteComment(c: Danmaku, row, density, duration_marquee, duration_still, style: DanmakuStyle):
+def write_danmaku(c: Danmaku, row, density, duration_marquee, duration_still, style: DanmakuStyle):
     dialogue = DanmakuLine(Layer=2, Start=timedelta(seconds=c.timeline), Style=style.name)
-    text = ASSEscape(c.comment)
+    text = ass_escape(c.comment)
     styles = []
     if c.pos == DanmakuType.TOP:
         styles.append(StringPromise(lambda: f'\\an8\\pos({dialogue.resize_width / 2}d, {style.resize_height * style.scale / density * (row + (1-density)/2)}d)'))
@@ -213,11 +207,11 @@ def WriteComment(c: Danmaku, row, density, duration_marquee, duration_still, sty
     return dialogue
 
 
-def FindAlternativeRow(rows: list[list[Optional[Danmaku]]], c: Danmaku, height, bottomReserved):
+def find_alternative_row(rows: list[list[Optional[Danmaku]]], c: Danmaku, height, bottom_reserved):
     res = 0
     restimeline = float('inf')
-    assert type(c.pos) is int
-    for row in range(height - bottomReserved - math.ceil(c.height)):
+    assert isinstance(c.pos, int)
+    for row in range(height - bottom_reserved - math.ceil(c.height)):
         commentrow = rows[c.pos][row]
         if commentrow is None:
             return row
@@ -229,4 +223,4 @@ def FindAlternativeRow(rows: list[list[Optional[Danmaku]]], c: Danmaku, height, 
 
 def parsecomments(src: Iterable[Danmaku], **kwargs) -> Iterable[ass.line._Line]:
     kwargs.update(LocalStorage()['style'])
-    return ProcessComments(src, **kwargs)
+    return render_danmakus(src, **kwargs)
